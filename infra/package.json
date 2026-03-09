@@ -1,0 +1,29 @@
+{
+    "name": "jot-down-infra",
+    "version": "1.0.0",
+    "description": "Jot-Down AWS CDK Infrastructure",
+    "main": "index.js",
+    "scripts": {
+        "build": "tsc",
+        "synth": "cdk synth --profile personal",
+        "deploy": "cdk deploy --profile personal",
+        "destroy": "cdk destroy --profile personal",
+        "diff": "cdk diff --profile personal",
+        "bootstrap": "cdk bootstrap --profile personal"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "dependencies": {
+        "aws-cdk-lib": "^2.241.0",
+        "constructs": "^10.5.1",
+        "source-map-support": "^0.5.21"
+    },
+    "devDependencies": {
+        "@types/node": "^25.3.5",
+        "@types/source-map-support": "^0.5.10",
+        "aws-cdk": "^2.1109.0",
+        "ts-node": "^10.9.2",
+        "typescript": "^5.9.3"
+    }
+}

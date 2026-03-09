@@ -1,0 +1,379 @@
+import { DynamoDBClient } from "@aws-sdk/client-dynamodb"
+import {
+    DynamoDBDocumentClient,
+    PutCommand,
+    GetCommand,
+    QueryCommand,
+    UpdateCommand,
+    DeleteCommand,
+} from "@aws-sdk/lib-dynamodb"
+import {
+    CognitoIdentityProviderClient,
+    AdminCreateUserCommand,
+    AdminAddUserToGroupCommand,
+    ListUsersCommand,
+} from "@aws-sdk/client-cognito-identity-provider"
+import { randomUUID } from "crypto"
+
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
+const cognito = new CognitoIdentityProviderClient({})
+const TABLE_NAME = process.env.TABLE_NAME
+const USER_POOL_ID = process.env.USER_POOL_ID
+
+// Helper: extract user info from Cognito authorizer claims
+function getUserFromEvent(event) {
+    const claims = event.requestContext?.authorizer?.claims
+    if (!claims) throw new Error("Unauthorized")
+    return {
+        userId: claims.sub,
+        email: claims.email,
+        groups: claims["cognito:groups"]?.split(",") || [],
+    }
+}
+
+function isAdmin(user) {
+    return user.groups.includes("admins")
+}
+
+function response(statusCode, body) {
+    return {
+        statusCode,
+        headers: {
+            "Content-Type": "application/json",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Content-Type,Authorization",
+        },
+        body: JSON.stringify(body),
+    }
+}
+
+// Check if user can access a wiki (owner, shared, or admin)
+async function canAccessWiki(userId, wikiId, requiredAccess = "view") {
+    // Get wiki metadata
+    const wikiResult = await ddb.send(
+        new GetCommand({
+            TableName: TABLE_NAME,
+            Key: { PK: `WIKI#${wikiId}`, SK: "META" },
+        }),
+    )
+
+    if (!wikiResult.Item) return { allowed: false, wiki: null }
+
+    const wiki = wikiResult.Item
+
+    // Owner has full access
+    if (wiki.ownerId === userId) return { allowed: true, wiki }
+
+    // Check share
+    const shareResult = await ddb.send(
+        new GetCommand({
+            TableName: TABLE_NAME,
+            Key: { PK: `WIKI#${wikiId}`, SK: `SHARE#${userId}` },
+        }),
+    )
+
+    if (shareResult.Item) {
+        if (requiredAccess === "view") return { allowed: true, wiki }
+        if (
+            requiredAccess === "edit" &&
+            shareResult.Item.accessLevel === "edit"
+        )
+            return { allowed: true, wiki }
+    }
+
+    return { allowed: false, wiki }
+}
+
+export async function handler(event) {
+    try {
+        const user = getUserFromEvent(event)
+        const method = event.httpMethod
+        const path = event.resource
+        const { wikiId, userId: targetUserId } = event.pathParameters || {}
+        const body = event.body ? JSON.parse(event.body) : {}
+
+        // --- WIKI CRUD ---
+
+        // POST /wikis — Create wiki
+        if (method === "POST" && path === "/wikis") {
+            const wikiId = randomUUID()
+            const now = new Date().toISOString()
+
+            const item = {
+                PK: `WIKI#${wikiId}`,
+                SK: "META",
+                entityType: "wiki",
+                wikiId,
+                name: body.name || "Untitled Wiki",
+                ownerId: user.userId,
+                ownerEmail: user.email,
+                createdAt: now,
+                updatedAt: now,
+                // GSI for user lookups
+                GSI1PK: `USER#${user.userId}`,
+                GSI1SK: `WIKI#${wikiId}`,
+            }
+
+            await ddb.send(
+                new PutCommand({ TableName: TABLE_NAME, Item: item }),
+            )
+            return response(201, { wikiId, name: item.name })
+        }
+
+        // GET /wikis — List user's wikis
+        if (method === "GET" && path === "/wikis") {
+            const result = await ddb.send(
+                new QueryCommand({
+                    TableName: TABLE_NAME,
+                    IndexName: "GSI1",
+                    KeyConditionExpression: "GSI1PK = :pk",
+                    ExpressionAttributeValues: { ":pk": `USER#${user.userId}` },
+                }),
+            )
+
+            const wikis = (result.Items || []).map((item) => ({
+                wikiId: item.wikiId,
+                name: item.name,
+                ownerId: item.ownerId,
+                ownerEmail: item.ownerEmail,
+                accessLevel: item.accessLevel || "owner",
+                createdAt: item.createdAt,
+                updatedAt: item.updatedAt,
+            }))
+
+            return response(200, { wikis })
+        }
+
+        // GET /wikis/{wikiId} — Get wiki details
+        if (method === "GET" && path === "/wikis/{wikiId}") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (!allowed && !isAdmin(user))
+                return response(403, { error: "Forbidden" })
+
+            return response(200, {
+                wikiId: wiki.wikiId,
+                name: wiki.name,
+                ownerId: wiki.ownerId,
+                ownerEmail: wiki.ownerEmail,
+                createdAt: wiki.createdAt,
+                updatedAt: wiki.updatedAt,
+            })
+        }
+
+        // PUT /wikis/{wikiId} — Update wiki
+        if (method === "PUT" && path === "/wikis/{wikiId}") {
+            const { allowed, wiki } = await canAccessWiki(
+                user.userId,
+                wikiId,
+                "edit",
+            )
+            if (!allowed && !isAdmin(user))
+                return response(403, { error: "Forbidden" })
+
+            const now = new Date().toISOString()
+            await ddb.send(
+                new UpdateCommand({
+                    TableName: TABLE_NAME,
+                    Key: { PK: `WIKI#${wikiId}`, SK: "META" },
+                    UpdateExpression: "SET #name = :name, updatedAt = :now",
+                    ExpressionAttributeNames: { "#name": "name" },
+                    ExpressionAttributeValues: {
+                        ":name": body.name,
+                        ":now": now,
+                    },
+                }),
+            )
+
+            return response(200, { wikiId, name: body.name })
+        }
+
+        // DELETE /wikis/{wikiId} — Delete wiki (owner or admin only)
+        if (method === "DELETE" && path === "/wikis/{wikiId}") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (!wiki) return response(404, { error: "Wiki not found" })
+            if (wiki.ownerId !== user.userId && !isAdmin(user)) {
+                return response(403, {
+                    error: "Only the owner or admin can delete a wiki",
+                })
+            }
+
+            // Delete all items with this wiki's PK
+            const allItems = await ddb.send(
+                new QueryCommand({
+                    TableName: TABLE_NAME,
+                    KeyConditionExpression: "PK = :pk",
+                    ExpressionAttributeValues: { ":pk": `WIKI#${wikiId}` },
+                }),
+            )
+
+            for (const item of allItems.Items || []) {
+                await ddb.send(
+                    new DeleteCommand({
+                        TableName: TABLE_NAME,
+                        Key: { PK: item.PK, SK: item.SK },
+                    }),
+                )
+            }
+
+            return response(200, { deleted: true })
+        }
+
+        // --- SHARING ---
+
+        // POST /wikis/{wikiId}/shares — Share wiki
+        if (method === "POST" && path === "/wikis/{wikiId}/shares") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (!wiki) return response(404, { error: "Wiki not found" })
+            if (wiki.ownerId !== user.userId && !isAdmin(user)) {
+                return response(403, {
+                    error: "Only the owner can share a wiki",
+                })
+            }
+
+            // Look up target user by email in Cognito
+            const usersResult = await cognito.send(
+                new ListUsersCommand({
+                    UserPoolId: USER_POOL_ID,
+                    Filter: `email = "${body.email}"`,
+                }),
+            )
+
+            if (!usersResult.Users || usersResult.Users.length === 0) {
+                return response(404, { error: "User not found" })
+            }
+
+            const targetUser = usersResult.Users[0]
+            const targetSub = targetUser.Attributes?.find(
+                (a) => a.Name === "sub",
+            )?.Value
+            const now = new Date().toISOString()
+
+            const shareItem = {
+                PK: `WIKI#${wikiId}`,
+                SK: `SHARE#${targetSub}`,
+                entityType: "share",
+                wikiId,
+                userId: targetSub,
+                userEmail: body.email,
+                accessLevel: body.accessLevel || "view",
+                grantedBy: user.userId,
+                grantedAt: now,
+                // GSI so shared user can find this wiki
+                GSI1PK: `USER#${targetSub}`,
+                GSI1SK: `WIKI#${wikiId}`,
+                // Include wiki info for the GSI query result
+                name: wiki.name,
+                ownerId: wiki.ownerId,
+                ownerEmail: wiki.ownerEmail,
+            }
+
+            await ddb.send(
+                new PutCommand({ TableName: TABLE_NAME, Item: shareItem }),
+            )
+            return response(201, {
+                shared: true,
+                userEmail: body.email,
+                accessLevel: shareItem.accessLevel,
+            })
+        }
+
+        // GET /wikis/{wikiId}/shares — List shares
+        if (method === "GET" && path === "/wikis/{wikiId}/shares") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (!allowed && !isAdmin(user))
+                return response(403, { error: "Forbidden" })
+
+            const result = await ddb.send(
+                new QueryCommand({
+                    TableName: TABLE_NAME,
+                    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+                    ExpressionAttributeValues: {
+                        ":pk": `WIKI#${wikiId}`,
+                        ":sk": "SHARE#",
+                    },
+                }),
+            )
+
+            const shares = (result.Items || []).map((item) => ({
+                userId: item.userId,
+                userEmail: item.userEmail,
+                accessLevel: item.accessLevel,
+                grantedBy: item.grantedBy,
+                grantedAt: item.grantedAt,
+            }))
+
+            return response(200, { shares })
+        }
+
+        // PUT /wikis/{wikiId}/shares/{userId} — Update share access level
+        if (method === "PUT" && path === "/wikis/{wikiId}/shares/{userId}") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (wiki?.ownerId !== user.userId && !isAdmin(user)) {
+                return response(403, {
+                    error: "Only the owner can update shares",
+                })
+            }
+
+            await ddb.send(
+                new UpdateCommand({
+                    TableName: TABLE_NAME,
+                    Key: { PK: `WIKI#${wikiId}`, SK: `SHARE#${targetUserId}` },
+                    UpdateExpression: "SET accessLevel = :level",
+                    ExpressionAttributeValues: { ":level": body.accessLevel },
+                }),
+            )
+
+            return response(200, { updated: true })
+        }
+
+        // DELETE /wikis/{wikiId}/shares/{userId} — Revoke share
+        if (method === "DELETE" && path === "/wikis/{wikiId}/shares/{userId}") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (wiki?.ownerId !== user.userId && !isAdmin(user)) {
+                return response(403, {
+                    error: "Only the owner can revoke shares",
+                })
+            }
+
+            await ddb.send(
+                new DeleteCommand({
+                    TableName: TABLE_NAME,
+                    Key: { PK: `WIKI#${wikiId}`, SK: `SHARE#${targetUserId}` },
+                }),
+            )
+
+            return response(200, { deleted: true })
+        }
+
+        // --- ADMIN: Create User ---
+        // POST /wikis with special action
+        // We'll handle admin user creation as a separate path
+        if (
+            method === "POST" &&
+            path === "/wikis" &&
+            body.action === "createUser"
+        ) {
+            if (!isAdmin(user))
+                return response(403, { error: "Only admins can create users" })
+
+            await cognito.send(
+                new AdminCreateUserCommand({
+                    UserPoolId: USER_POOL_ID,
+                    Username: body.email,
+                    TemporaryPassword: body.temporaryPassword || "TempPass1!",
+                    UserAttributes: [
+                        { Name: "email", Value: body.email },
+                        { Name: "email_verified", Value: "true" },
+                    ],
+                }),
+            )
+
+            return response(201, { created: true, email: body.email })
+        }
+
+        return response(404, { error: "Not found" })
+    } catch (err) {
+        console.error("Wiki handler error:", err)
+        return response(500, { error: err.message || "Internal server error" })
+    }
+}

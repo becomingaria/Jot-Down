@@ -1,0 +1,5581 @@
+{
+ "Description": "Jot-Down Wiki - S3, DynamoDB, Cognito, API Gateway, Lambda",
+ "Resources": {
+  "StorageContentBucket858D6C32": {
+   "Type": "AWS::S3::Bucket",
+   "Properties": {
+    "BucketEncryption": {
+     "ServerSideEncryptionConfiguration": [
+      {
+       "ServerSideEncryptionByDefault": {
+        "SSEAlgorithm": "AES256"
+       }
+      }
+     ]
+    },
+    "BucketName": {
+     "Fn::Join": [
+      "",
+      [
+       "jot-down-content-",
+       {
+        "Ref": "AWS::AccountId"
+       }
+      ]
+     ]
+    },
+    "CorsConfiguration": {
+     "CorsRules": [
+      {
+       "AllowedHeaders": [
+        "*"
+       ],
+       "AllowedMethods": [
+        "GET",
+        "PUT",
+        "POST",
+        "DELETE"
+       ],
+       "AllowedOrigins": [
+        "http://localhost:3000",
+        "https://*.netlify.app"
+       ],
+       "ExposedHeaders": [
+        "ETag"
+       ],
+       "MaxAge": 3600
+      }
+     ]
+    },
+    "LifecycleConfiguration": {
+     "Rules": [
+      {
+       "Status": "Enabled",
+       "Transitions": [
+        {
+         "StorageClass": "STANDARD_IA",
+         "TransitionInDays": 90
+        }
+       ]
+      }
+     ]
+    },
+    "PublicAccessBlockConfiguration": {
+     "BlockPublicAcls": true,
+     "BlockPublicPolicy": true,
+     "IgnorePublicAcls": true,
+     "RestrictPublicBuckets": true
+    },
+    "Tags": [
+     {
+      "Key": "aws-cdk:auto-delete-objects",
+      "Value": "true"
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Storage/ContentBucket/Resource"
+   }
+  },
+  "StorageContentBucketPolicyFB90A527": {
+   "Type": "AWS::S3::BucketPolicy",
+   "Properties": {
+    "Bucket": {
+     "Ref": "StorageContentBucket858D6C32"
+    },
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "s3:PutBucketPolicy",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*"
+       ],
+       "Effect": "Allow",
+       "Principal": {
+        "AWS": {
+         "Fn::GetAtt": [
+          "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+          "Arn"
+         ]
+        }
+       },
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageContentBucket858D6C32",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageContentBucket858D6C32",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Storage/ContentBucket/Policy/Resource"
+   }
+  },
+  "StorageContentBucketAutoDeleteObjectsCustomResource9B0879AA": {
+   "Type": "Custom::S3AutoDeleteObjects",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F",
+      "Arn"
+     ]
+    },
+    "BucketName": {
+     "Ref": "StorageContentBucket858D6C32"
+    }
+   },
+   "DependsOn": [
+    "StorageContentBucketPolicyFB90A527"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Storage/ContentBucket/AutoDeleteObjectsCustomResource/Default"
+   }
+  },
+  "StorageMetadataTableFA6FB852": {
+   "Type": "AWS::DynamoDB::Table",
+   "Properties": {
+    "AttributeDefinitions": [
+     {
+      "AttributeName": "PK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "SK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "GSI1PK",
+      "AttributeType": "S"
+     },
+     {
+      "AttributeName": "GSI1SK",
+      "AttributeType": "S"
+     }
+    ],
+    "BillingMode": "PAY_PER_REQUEST",
+    "GlobalSecondaryIndexes": [
+     {
+      "IndexName": "GSI1",
+      "KeySchema": [
+       {
+        "AttributeName": "GSI1PK",
+        "KeyType": "HASH"
+       },
+       {
+        "AttributeName": "GSI1SK",
+        "KeyType": "RANGE"
+       }
+      ],
+      "Projection": {
+       "ProjectionType": "ALL"
+      }
+     }
+    ],
+    "KeySchema": [
+     {
+      "AttributeName": "PK",
+      "KeyType": "HASH"
+     },
+     {
+      "AttributeName": "SK",
+      "KeyType": "RANGE"
+     }
+    ],
+    "PointInTimeRecoverySpecification": {
+     "PointInTimeRecoveryEnabled": false
+    },
+    "TableName": "jot-down-table"
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Storage/MetadataTable/Resource"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Version": "2012-10-17",
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ]
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Sub": "arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Role"
+   }
+  },
+  "CustomS3AutoDeleteObjectsCustomResourceProviderHandler9D90184F": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
+     "S3Key": "faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6.zip"
+    },
+    "Timeout": 900,
+    "MemorySize": 128,
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs22.x",
+    "Description": {
+     "Fn::Join": [
+      "",
+      [
+       "Lambda function for auto-deleting objects in ",
+       {
+        "Ref": "StorageContentBucket858D6C32"
+       },
+       " S3 bucket."
+      ]
+     ]
+    }
+   },
+   "DependsOn": [
+    "CustomS3AutoDeleteObjectsCustomResourceProviderRole3B1BD092"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Custom::S3AutoDeleteObjectsCustomResourceProvider/Handler",
+    "aws:asset:path": "asset.faa95a81ae7d7373f3e1f242268f904eb748d8d0fdd306e8a6fe515a1905a7d6",
+    "aws:asset:property": "Code"
+   }
+  },
+  "AuthUserPool8115E87F": {
+   "Type": "AWS::Cognito::UserPool",
+   "Properties": {
+    "AccountRecoverySetting": {
+     "RecoveryMechanisms": [
+      {
+       "Name": "verified_email",
+       "Priority": 1
+      }
+     ]
+    },
+    "AdminCreateUserConfig": {
+     "AllowAdminCreateUserOnly": true
+    },
+    "AutoVerifiedAttributes": [
+     "email"
+    ],
+    "EmailVerificationMessage": "The verification code to your new account is {####}",
+    "EmailVerificationSubject": "Verify your new account",
+    "Policies": {
+     "PasswordPolicy": {
+      "MinimumLength": 8,
+      "RequireLowercase": true,
+      "RequireNumbers": true,
+      "RequireSymbols": true,
+      "RequireUppercase": true
+     }
+    },
+    "Schema": [
+     {
+      "Mutable": true,
+      "Name": "email",
+      "Required": true
+     },
+     {
+      "Mutable": true,
+      "Name": "given_name",
+      "Required": false
+     },
+     {
+      "Mutable": true,
+      "Name": "family_name",
+      "Required": false
+     }
+    ],
+    "SmsVerificationMessage": "The verification code to your new account is {####}",
+    "UserPoolName": "jot-down-users",
+    "UsernameAttributes": [
+     "email"
+    ],
+    "VerificationMessageTemplate": {
+     "DefaultEmailOption": "CONFIRM_WITH_CODE",
+     "EmailMessage": "The verification code to your new account is {####}",
+     "EmailSubject": "Verify your new account",
+     "SmsMessage": "The verification code to your new account is {####}"
+    }
+   },
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/UserPool/Resource"
+   }
+  },
+  "AuthAppClientC935EC2C": {
+   "Type": "AWS::Cognito::UserPoolClient",
+   "Properties": {
+    "AccessTokenValidity": 60,
+    "AllowedOAuthFlows": [
+     "implicit",
+     "code"
+    ],
+    "AllowedOAuthFlowsUserPoolClient": true,
+    "AllowedOAuthScopes": [
+     "profile",
+     "phone",
+     "email",
+     "openid",
+     "aws.cognito.signin.user.admin"
+    ],
+    "CallbackURLs": [
+     "https://example.com"
+    ],
+    "ClientName": "jot-down-web",
+    "ExplicitAuthFlows": [
+     "ALLOW_USER_PASSWORD_AUTH",
+     "ALLOW_USER_SRP_AUTH",
+     "ALLOW_REFRESH_TOKEN_AUTH"
+    ],
+    "GenerateSecret": false,
+    "IdTokenValidity": 60,
+    "PreventUserExistenceErrors": "ENABLED",
+    "RefreshTokenValidity": 43200,
+    "SupportedIdentityProviders": [
+     "COGNITO"
+    ],
+    "TokenValidityUnits": {
+     "AccessToken": "minutes",
+     "IdToken": "minutes",
+     "RefreshToken": "minutes"
+    },
+    "UserPoolId": {
+     "Ref": "AuthUserPool8115E87F"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/AppClient/Resource"
+   }
+  },
+  "AuthAdminGroup9B286F1A": {
+   "Type": "AWS::Cognito::UserPoolGroup",
+   "Properties": {
+    "Description": "Administrators who can create users and manage all wikis",
+    "GroupName": "admins",
+    "UserPoolId": {
+     "Ref": "AuthUserPool8115E87F"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/AdminGroup"
+   }
+  },
+  "AuthSeedAdminUser1FF55C3E": {
+   "Type": "Custom::AWS",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "AWS679f53fac002430cb0da5b7982bd22872D164C4C",
+      "Arn"
+     ]
+    },
+    "Create": {
+     "Fn::Join": [
+      "",
+      [
+       "{\"service\":\"CognitoIdentityServiceProvider\",\"action\":\"adminCreateUser\",\"parameters\":{\"UserPoolId\":\"",
+       {
+        "Ref": "AuthUserPool8115E87F"
+       },
+       "\",\"Username\":\"becomingaria@gmail.com\",\"TemporaryPassword\":\"TempPass1!\",\"UserAttributes\":[{\"Name\":\"email\",\"Value\":\"becomingaria@gmail.com\"},{\"Name\":\"email_verified\",\"Value\":\"true\"}],\"MessageAction\":\"SUPPRESS\"},\"physicalResourceId\":{\"id\":\"seed-admin-user\"}}"
+      ]
+     ]
+    },
+    "InstallLatestAwsSdk": true
+   },
+   "DependsOn": [
+    "AuthSeedAdminUserCustomResourcePolicy8B96EF79"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/SeedAdminUser/Resource/Default"
+   }
+  },
+  "AuthSeedAdminUserCustomResourcePolicy8B96EF79": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "cognito-idp:AdminCreateUser",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuthUserPool8115E87F",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "AuthSeedAdminUserCustomResourcePolicy8B96EF79",
+    "Roles": [
+     {
+      "Ref": "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/SeedAdminUser/CustomResourcePolicy/Resource"
+   }
+  },
+  "AuthAddAdminToGroup4B060F21": {
+   "Type": "Custom::AWS",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "AWS679f53fac002430cb0da5b7982bd22872D164C4C",
+      "Arn"
+     ]
+    },
+    "Create": {
+     "Fn::Join": [
+      "",
+      [
+       "{\"service\":\"CognitoIdentityServiceProvider\",\"action\":\"adminAddUserToGroup\",\"parameters\":{\"UserPoolId\":\"",
+       {
+        "Ref": "AuthUserPool8115E87F"
+       },
+       "\",\"Username\":\"becomingaria@gmail.com\",\"GroupName\":\"admins\"},\"physicalResourceId\":{\"id\":\"add-admin-to-group\"}}"
+      ]
+     ]
+    },
+    "InstallLatestAwsSdk": true
+   },
+   "DependsOn": [
+    "AuthAddAdminToGroupCustomResourcePolicyBBA793D6",
+    "AuthSeedAdminUserCustomResourcePolicy8B96EF79",
+    "AuthSeedAdminUser1FF55C3E"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/AddAdminToGroup/Resource/Default"
+   }
+  },
+  "AuthAddAdminToGroupCustomResourcePolicyBBA793D6": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "cognito-idp:AdminAddUserToGroup",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuthUserPool8115E87F",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "AuthAddAdminToGroupCustomResourcePolicyBBA793D6",
+    "Roles": [
+     {
+      "Ref": "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+     }
+    ]
+   },
+   "DependsOn": [
+    "AuthSeedAdminUserCustomResourcePolicy8B96EF79",
+    "AuthSeedAdminUser1FF55C3E"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/AddAdminToGroup/CustomResourcePolicy/Resource"
+   }
+  },
+  "AuthSeedRegularUser833B5836": {
+   "Type": "Custom::AWS",
+   "Properties": {
+    "ServiceToken": {
+     "Fn::GetAtt": [
+      "AWS679f53fac002430cb0da5b7982bd22872D164C4C",
+      "Arn"
+     ]
+    },
+    "Create": {
+     "Fn::Join": [
+      "",
+      [
+       "{\"service\":\"CognitoIdentityServiceProvider\",\"action\":\"adminCreateUser\",\"parameters\":{\"UserPoolId\":\"",
+       {
+        "Ref": "AuthUserPool8115E87F"
+       },
+       "\",\"Username\":\"kat.hallo@outlook.com\",\"TemporaryPassword\":\"TempPass1!\",\"UserAttributes\":[{\"Name\":\"email\",\"Value\":\"kat.hallo@outlook.com\"},{\"Name\":\"email_verified\",\"Value\":\"true\"}],\"MessageAction\":\"SUPPRESS\"},\"physicalResourceId\":{\"id\":\"seed-regular-user\"}}"
+      ]
+     ]
+    },
+    "InstallLatestAwsSdk": true
+   },
+   "DependsOn": [
+    "AuthSeedRegularUserCustomResourcePolicy50A35C8E"
+   ],
+   "UpdateReplacePolicy": "Delete",
+   "DeletionPolicy": "Delete",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/SeedRegularUser/Resource/Default"
+   }
+  },
+  "AuthSeedRegularUserCustomResourcePolicy50A35C8E": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": "cognito-idp:AdminCreateUser",
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuthUserPool8115E87F",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "AuthSeedRegularUserCustomResourcePolicy50A35C8E",
+    "Roles": [
+     {
+      "Ref": "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Auth/SeedRegularUser/CustomResourcePolicy/Resource"
+   }
+  },
+  "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/AWS679f53fac002430cb0da5b7982bd2287/ServiceRole/Resource"
+   }
+  },
+  "AWS679f53fac002430cb0da5b7982bd22872D164C4C": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
+     "S3Key": "56f7467bbde8a5efebcf57ae9e460027607099bab9f844669dcf5d800172ee5a.zip"
+    },
+    "Handler": "index.handler",
+    "Role": {
+     "Fn::GetAtt": [
+      "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs22.x",
+    "Timeout": 120
+   },
+   "DependsOn": [
+    "AWS679f53fac002430cb0da5b7982bd2287ServiceRoleC1EA0FF2"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/AWS679f53fac002430cb0da5b7982bd2287/Resource",
+    "aws:asset:path": "asset.56f7467bbde8a5efebcf57ae9e460027607099bab9f844669dcf5d800172ee5a",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "ApiWikiHandlerServiceRole7AAD056A": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/WikiHandler/ServiceRole/Resource"
+   }
+  },
+  "ApiWikiHandlerServiceRoleDefaultPolicy6EAC90D2": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:ListUsers",
+        "cognito-idp:AdminGetUser"
+       ],
+       "Effect": "Allow",
+       "Resource": {
+        "Fn::GetAtt": [
+         "AuthUserPool8115E87F",
+         "Arn"
+        ]
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "ApiWikiHandlerServiceRoleDefaultPolicy6EAC90D2",
+    "Roles": [
+     {
+      "Ref": "ApiWikiHandlerServiceRole7AAD056A"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/WikiHandler/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "ApiWikiHandlerF9D222D5": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
+     "S3Key": "37f9e388992d1f78bdbe884a96f3aa720b9fe3c9daa0d9f620d6a78e93e61e5d.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "TABLE_NAME": {
+       "Ref": "StorageMetadataTableFA6FB852"
+      },
+      "BUCKET_NAME": {
+       "Ref": "StorageContentBucket858D6C32"
+      },
+      "USER_POOL_ID": {
+       "Ref": "AuthUserPool8115E87F"
+      }
+     }
+    },
+    "FunctionName": "jot-down-wiki",
+    "Handler": "index.handler",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerServiceRole7AAD056A",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 30
+   },
+   "DependsOn": [
+    "ApiWikiHandlerServiceRoleDefaultPolicy6EAC90D2",
+    "ApiWikiHandlerServiceRole7AAD056A"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/WikiHandler/Resource",
+    "aws:asset:path": "asset.37f9e388992d1f78bdbe884a96f3aa720b9fe3c9daa0d9f620d6a78e93e61e5d",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "ApiFileHandlerServiceRoleA3F4CD4C": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/FileHandler/ServiceRole/Resource"
+   }
+  },
+  "ApiFileHandlerServiceRoleDefaultPolicyBDEE72EA": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:BatchWriteItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageContentBucket858D6C32",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageContentBucket858D6C32",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "ApiFileHandlerServiceRoleDefaultPolicyBDEE72EA",
+    "Roles": [
+     {
+      "Ref": "ApiFileHandlerServiceRoleA3F4CD4C"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/FileHandler/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "ApiFileHandler53850EA6": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
+     "S3Key": "5a3b39bf2f1a71b864f5cefee81ca890059e07b3d3241224221a2f8c566a025d.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "TABLE_NAME": {
+       "Ref": "StorageMetadataTableFA6FB852"
+      },
+      "BUCKET_NAME": {
+       "Ref": "StorageContentBucket858D6C32"
+      },
+      "USER_POOL_ID": {
+       "Ref": "AuthUserPool8115E87F"
+      }
+     }
+    },
+    "FunctionName": "jot-down-file",
+    "Handler": "index.handler",
+    "MemorySize": 256,
+    "Role": {
+     "Fn::GetAtt": [
+      "ApiFileHandlerServiceRoleA3F4CD4C",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 30
+   },
+   "DependsOn": [
+    "ApiFileHandlerServiceRoleDefaultPolicyBDEE72EA",
+    "ApiFileHandlerServiceRoleA3F4CD4C"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/FileHandler/Resource",
+    "aws:asset:path": "asset.5a3b39bf2f1a71b864f5cefee81ca890059e07b3d3241224221a2f8c566a025d",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "ApiImageHandlerServiceRoleA4DAD2CF": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/ImageHandler/ServiceRole/Resource"
+   }
+  },
+  "ApiImageHandlerServiceRoleDefaultPolicy7243FD92": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*",
+        "s3:DeleteObject*",
+        "s3:PutObject",
+        "s3:PutObjectLegalHold",
+        "s3:PutObjectRetention",
+        "s3:PutObjectTagging",
+        "s3:PutObjectVersionTagging",
+        "s3:Abort*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageContentBucket858D6C32",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageContentBucket858D6C32",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "ApiImageHandlerServiceRoleDefaultPolicy7243FD92",
+    "Roles": [
+     {
+      "Ref": "ApiImageHandlerServiceRoleA4DAD2CF"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/ImageHandler/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "ApiImageHandler824F3F28": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
+     "S3Key": "048edf097e9c3beb9519b31dc79533d8c4bc928454d212949b2af05bc8b44c09.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "TABLE_NAME": {
+       "Ref": "StorageMetadataTableFA6FB852"
+      },
+      "BUCKET_NAME": {
+       "Ref": "StorageContentBucket858D6C32"
+      },
+      "USER_POOL_ID": {
+       "Ref": "AuthUserPool8115E87F"
+      }
+     }
+    },
+    "FunctionName": "jot-down-image",
+    "Handler": "index.handler",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "ApiImageHandlerServiceRoleA4DAD2CF",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 60
+   },
+   "DependsOn": [
+    "ApiImageHandlerServiceRoleDefaultPolicy7243FD92",
+    "ApiImageHandlerServiceRoleA4DAD2CF"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/ImageHandler/Resource",
+    "aws:asset:path": "asset.048edf097e9c3beb9519b31dc79533d8c4bc928454d212949b2af05bc8b44c09",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "ApiExportHandlerServiceRole0FF0A60A": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "lambda.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+       ]
+      ]
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/ExportHandler/ServiceRole/Resource"
+   }
+  },
+  "ApiExportHandlerServiceRoleDefaultPolicy41D675A2": {
+   "Type": "AWS::IAM::Policy",
+   "Properties": {
+    "PolicyDocument": {
+     "Statement": [
+      {
+       "Action": [
+        "dynamodb:BatchGetItem",
+        "dynamodb:Query",
+        "dynamodb:GetItem",
+        "dynamodb:Scan",
+        "dynamodb:ConditionCheckItem",
+        "dynamodb:DescribeTable"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "dynamodb:GetRecords",
+        "dynamodb:GetShardIterator"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageMetadataTableFA6FB852",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageMetadataTableFA6FB852",
+             "Arn"
+            ]
+           },
+           "/index/*"
+          ]
+         ]
+        }
+       ]
+      },
+      {
+       "Action": [
+        "s3:GetObject*",
+        "s3:GetBucket*",
+        "s3:List*"
+       ],
+       "Effect": "Allow",
+       "Resource": [
+        {
+         "Fn::GetAtt": [
+          "StorageContentBucket858D6C32",
+          "Arn"
+         ]
+        },
+        {
+         "Fn::Join": [
+          "",
+          [
+           {
+            "Fn::GetAtt": [
+             "StorageContentBucket858D6C32",
+             "Arn"
+            ]
+           },
+           "/*"
+          ]
+         ]
+        }
+       ]
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "PolicyName": "ApiExportHandlerServiceRoleDefaultPolicy41D675A2",
+    "Roles": [
+     {
+      "Ref": "ApiExportHandlerServiceRole0FF0A60A"
+     }
+    ]
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/ExportHandler/ServiceRole/DefaultPolicy/Resource"
+   }
+  },
+  "ApiExportHandler8BAEFB46": {
+   "Type": "AWS::Lambda::Function",
+   "Properties": {
+    "Architectures": [
+     "arm64"
+    ],
+    "Code": {
+     "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
+     "S3Key": "1ac3136137f2f5c7e576699279548c7dbe6635d41688e8919b5e32cf9bd4e425.zip"
+    },
+    "Environment": {
+     "Variables": {
+      "TABLE_NAME": {
+       "Ref": "StorageMetadataTableFA6FB852"
+      },
+      "BUCKET_NAME": {
+       "Ref": "StorageContentBucket858D6C32"
+      },
+      "USER_POOL_ID": {
+       "Ref": "AuthUserPool8115E87F"
+      }
+     }
+    },
+    "FunctionName": "jot-down-export",
+    "Handler": "index.handler",
+    "MemorySize": 512,
+    "Role": {
+     "Fn::GetAtt": [
+      "ApiExportHandlerServiceRole0FF0A60A",
+      "Arn"
+     ]
+    },
+    "Runtime": "nodejs20.x",
+    "Timeout": 60
+   },
+   "DependsOn": [
+    "ApiExportHandlerServiceRoleDefaultPolicy41D675A2",
+    "ApiExportHandlerServiceRole0FF0A60A"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/ExportHandler/Resource",
+    "aws:asset:path": "asset.1ac3136137f2f5c7e576699279548c7dbe6635d41688e8919b5e32cf9bd4e425",
+    "aws:asset:is-bundled": false,
+    "aws:asset:property": "Code"
+   }
+  },
+  "ApiCD79AAA0": {
+   "Type": "AWS::ApiGateway::RestApi",
+   "Properties": {
+    "Description": "Jot-Down Wiki API",
+    "Name": "jot-down-api"
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Resource"
+   }
+  },
+  "ApiCloudWatchRoleCCA56614": {
+   "Type": "AWS::IAM::Role",
+   "Properties": {
+    "AssumeRolePolicyDocument": {
+     "Statement": [
+      {
+       "Action": "sts:AssumeRole",
+       "Effect": "Allow",
+       "Principal": {
+        "Service": "apigateway.amazonaws.com"
+       }
+      }
+     ],
+     "Version": "2012-10-17"
+    },
+    "ManagedPolicyArns": [
+     {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs"
+       ]
+      ]
+     }
+    ]
+   },
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/CloudWatchRole/Resource"
+   }
+  },
+  "ApiAccount6C17A443": {
+   "Type": "AWS::ApiGateway::Account",
+   "Properties": {
+    "CloudWatchRoleArn": {
+     "Fn::GetAtt": [
+      "ApiCloudWatchRoleCCA56614",
+      "Arn"
+     ]
+    }
+   },
+   "DependsOn": [
+    "ApiCD79AAA0"
+   ],
+   "UpdateReplacePolicy": "Retain",
+   "DeletionPolicy": "Retain",
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Account"
+   }
+  },
+  "ApiDeploymentFE1E7282e9986b631efc859ec6d226b813a725f0": {
+   "Type": "AWS::ApiGateway::Deployment",
+   "Properties": {
+    "Description": "Jot-Down Wiki API",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "DependsOn": [
+    "ApiOPTIONS038759DB",
+    "ApiwikiswikiIdDELETE70451DE3",
+    "ApiwikiswikiIdexportGETD12611CF",
+    "ApiwikiswikiIdexportOPTIONS967401A2",
+    "ApiwikiswikiIdexportA6A50451",
+    "ApiwikiswikiIdfilesfileIdDELETE46FBB3DE",
+    "ApiwikiswikiIdfilesfileIdexportGET63C3CD7A",
+    "ApiwikiswikiIdfilesfileIdexportOPTIONSC9DD744F",
+    "ApiwikiswikiIdfilesfileIdexportBC8B8FD8",
+    "ApiwikiswikiIdfilesfileIdGET7F64A24F",
+    "ApiwikiswikiIdfilesfileIdOPTIONSD49A7CD7",
+    "ApiwikiswikiIdfilesfileIdPUT010A6725",
+    "ApiwikiswikiIdfilesfileIdB791EE67",
+    "ApiwikiswikiIdfilesGET76CA4431",
+    "ApiwikiswikiIdfilesimportOPTIONSD8118F0A",
+    "ApiwikiswikiIdfilesimportPOSTF3AD55CA",
+    "ApiwikiswikiIdfilesimport4459B20D",
+    "ApiwikiswikiIdfilesOPTIONS58655E54",
+    "ApiwikiswikiIdfilesPOST02F69222",
+    "ApiwikiswikiIdfiles492A9FAA",
+    "ApiwikiswikiIdfoldersfolderIdDELETE900D588D",
+    "ApiwikiswikiIdfoldersfolderIdexportGET09FAD720",
+    "ApiwikiswikiIdfoldersfolderIdexportOPTIONSF2E04611",
+    "ApiwikiswikiIdfoldersfolderIdexport77A188D8",
+    "ApiwikiswikiIdfoldersfolderIdGET7E8D8DCA",
+    "ApiwikiswikiIdfoldersfolderIdOPTIONS3CC522AB",
+    "ApiwikiswikiIdfoldersfolderIdPUTC1C9BA72",
+    "ApiwikiswikiIdfoldersfolderId82D5AE7B",
+    "ApiwikiswikiIdfoldersGETB9C1F340",
+    "ApiwikiswikiIdfoldersOPTIONSD3CC2359",
+    "ApiwikiswikiIdfoldersPOSTCE4F6FC7",
+    "ApiwikiswikiIdfolders3B38ECA9",
+    "ApiwikiswikiIdGET33EA01F0",
+    "ApiwikiswikiIdimagesimageIddownloadGET588DEAC5",
+    "ApiwikiswikiIdimagesimageIddownloadOPTIONSBF54642D",
+    "ApiwikiswikiIdimagesimageIddownloadC75EDC9E",
+    "ApiwikiswikiIdimagesimageIdGET36F9C0F2",
+    "ApiwikiswikiIdimagesimageIdOPTIONS47CBFAEB",
+    "ApiwikiswikiIdimagesimageId94C8FB9E",
+    "ApiwikiswikiIdimagesOPTIONSF5867B91",
+    "ApiwikiswikiIdimagesD616C513",
+    "ApiwikiswikiIdimagesuploadOPTIONSF06AFAD4",
+    "ApiwikiswikiIdimagesuploadPOSTB19A67DF",
+    "ApiwikiswikiIdimagesuploadCF6E356F",
+    "ApiwikiswikiIdOPTIONSDB043CA2",
+    "ApiwikiswikiIdPUTBA982FC0",
+    "ApiwikiswikiIdAFC60B42",
+    "ApiwikiswikiIdsharesuserIdDELETEDD505BAB",
+    "ApiwikiswikiIdsharesuserIdOPTIONSC2BD4FA5",
+    "ApiwikiswikiIdsharesuserIdPUT4B0762EE",
+    "ApiwikiswikiIdsharesuserIdB4E3C056",
+    "ApiwikiswikiIdsharesGETC406E509",
+    "ApiwikiswikiIdsharesOPTIONSEBA16ABC",
+    "ApiwikiswikiIdsharesPOST84B06B84",
+    "ApiwikiswikiIdsharesF5955ED2",
+    "ApiwikisGET83336726",
+    "ApiwikisOPTIONSD99E03D5",
+    "ApiwikisPOST78E98033",
+    "Apiwikis08C98519"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Deployment/Resource",
+    "aws:cdk:do-not-refactor": true
+   }
+  },
+  "ApiDeploymentStageprod95EFE650": {
+   "Type": "AWS::ApiGateway::Stage",
+   "Properties": {
+    "DeploymentId": {
+     "Ref": "ApiDeploymentFE1E7282e9986b631efc859ec6d226b813a725f0"
+    },
+    "MethodSettings": [
+     {
+      "DataTraceEnabled": false,
+      "HttpMethod": "*",
+      "ResourcePath": "/*",
+      "ThrottlingBurstLimit": 50,
+      "ThrottlingRateLimit": 100
+     }
+    ],
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    },
+    "StageName": "prod"
+   },
+   "DependsOn": [
+    "ApiAccount6C17A443"
+   ],
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/DeploymentStage.prod/Resource"
+   }
+  },
+  "ApiOPTIONS038759DB": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Fn::GetAtt": [
+      "ApiCD79AAA0",
+      "RootResourceId"
+     ]
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/OPTIONS/Resource"
+   }
+  },
+  "Apiwikis08C98519": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Fn::GetAtt": [
+      "ApiCD79AAA0",
+      "RootResourceId"
+     ]
+    },
+    "PathPart": "wikis",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/Resource"
+   }
+  },
+  "ApiwikisOPTIONSD99E03D5": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "Apiwikis08C98519"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/OPTIONS/Resource"
+   }
+  },
+  "ApiwikisGETApiPermissionJotDownStackApi21E217B9GETwikis4A87EFAB": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis"
+   }
+  },
+  "ApiwikisGETApiPermissionTestJotDownStackApi21E217B9GETwikis84B2C868": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis"
+   }
+  },
+  "ApiwikisGET83336726": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "Apiwikis08C98519"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/GET/Resource"
+   }
+  },
+  "ApiwikisPOSTApiPermissionJotDownStackApi21E217B9POSTwikisDF4D1896": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/wikis"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/POST/ApiPermission.JotDownStackApi21E217B9.POST..wikis"
+   }
+  },
+  "ApiwikisPOSTApiPermissionTestJotDownStackApi21E217B9POSTwikis32525D7A": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/wikis"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..wikis"
+   }
+  },
+  "ApiwikisPOST78E98033": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "Apiwikis08C98519"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/POST/Resource"
+   }
+  },
+  "ApiwikiswikiIdAFC60B42": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "Apiwikis08C98519"
+    },
+    "PathPart": "{wikiId}",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/Resource"
+   }
+  },
+  "ApiwikiswikiIdOPTIONSDB043CA2": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdGETApiPermissionJotDownStackApi21E217B9GETwikiswikiId687E7BD7": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}"
+   }
+  },
+  "ApiwikiswikiIdGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiId1B1DEA2B": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}"
+   }
+  },
+  "ApiwikiswikiIdGET33EA01F0": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdPUTApiPermissionJotDownStackApi21E217B9PUTwikiswikiId01DF3291": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/PUT/wikis/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/PUT/ApiPermission.JotDownStackApi21E217B9.PUT..wikis.{wikiId}"
+   }
+  },
+  "ApiwikiswikiIdPUTApiPermissionTestJotDownStackApi21E217B9PUTwikiswikiIdC2E4B6CA": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/PUT/wikis/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/PUT/ApiPermission.Test.JotDownStackApi21E217B9.PUT..wikis.{wikiId}"
+   }
+  },
+  "ApiwikiswikiIdPUTBA982FC0": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "PUT",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/PUT/Resource"
+   }
+  },
+  "ApiwikiswikiIdDELETEApiPermissionJotDownStackApi21E217B9DELETEwikiswikiIdDB260633": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/DELETE/wikis/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/DELETE/ApiPermission.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}"
+   }
+  },
+  "ApiwikiswikiIdDELETEApiPermissionTestJotDownStackApi21E217B9DELETEwikiswikiIdF023A483": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/DELETE/wikis/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/DELETE/ApiPermission.Test.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}"
+   }
+  },
+  "ApiwikiswikiIdDELETE70451DE3": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "DELETE",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/DELETE/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesF5955ED2": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "PathPart": "shares",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesOPTIONSEBA16ABC": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdsharesF5955ED2"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdshares7EA3D949": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/shares"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.shares"
+   }
+  },
+  "ApiwikiswikiIdsharesGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdshares0BC972E9": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/shares"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.shares"
+   }
+  },
+  "ApiwikiswikiIdsharesGETC406E509": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdsharesF5955ED2"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesPOSTApiPermissionJotDownStackApi21E217B9POSTwikiswikiIdshares1848F841": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/wikis/*/shares"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/POST/ApiPermission.JotDownStackApi21E217B9.POST..wikis.{wikiId}.shares"
+   }
+  },
+  "ApiwikiswikiIdsharesPOSTApiPermissionTestJotDownStackApi21E217B9POSTwikiswikiIdshares822BE16D": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/wikis/*/shares"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..wikis.{wikiId}.shares"
+   }
+  },
+  "ApiwikiswikiIdsharesPOST84B06B84": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdsharesF5955ED2"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/POST/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdB4E3C056": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdsharesF5955ED2"
+    },
+    "PathPart": "{userId}",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdOPTIONSC2BD4FA5": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdsharesuserIdB4E3C056"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdPUTApiPermissionJotDownStackApi21E217B9PUTwikiswikiIdsharesuserId665D8099": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/PUT/wikis/*/shares/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/PUT/ApiPermission.JotDownStackApi21E217B9.PUT..wikis.{wikiId}.shares.{userId}"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdPUTApiPermissionTestJotDownStackApi21E217B9PUTwikiswikiIdsharesuserId7A328408": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/PUT/wikis/*/shares/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/PUT/ApiPermission.Test.JotDownStackApi21E217B9.PUT..wikis.{wikiId}.shares.{userId}"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdPUT4B0762EE": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "PUT",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdsharesuserIdB4E3C056"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/PUT/Resource"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdDELETEApiPermissionJotDownStackApi21E217B9DELETEwikiswikiIdsharesuserId9BE842A4": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/DELETE/wikis/*/shares/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/DELETE/ApiPermission.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}.shares.{userId}"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdDELETEApiPermissionTestJotDownStackApi21E217B9DELETEwikiswikiIdsharesuserIdB8E5F038": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/DELETE/wikis/*/shares/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/DELETE/ApiPermission.Test.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}.shares.{userId}"
+   }
+  },
+  "ApiwikiswikiIdsharesuserIdDELETEDD505BAB": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "DELETE",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdsharesuserIdB4E3C056"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/shares/{userId}/DELETE/Resource"
+   }
+  },
+  "ApiwikiswikiIdfolders3B38ECA9": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "PathPart": "folders",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersOPTIONSD3CC2359": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfolders3B38ECA9"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdfoldersBBDF5D23": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/folders"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.folders"
+   }
+  },
+  "ApiwikiswikiIdfoldersGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdfolders4D5B51B2": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/folders"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.folders"
+   }
+  },
+  "ApiwikiswikiIdfoldersGETB9C1F340": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfolders3B38ECA9"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersPOSTApiPermissionJotDownStackApi21E217B9POSTwikiswikiIdfoldersB3E41971": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/wikis/*/folders"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/POST/ApiPermission.JotDownStackApi21E217B9.POST..wikis.{wikiId}.folders"
+   }
+  },
+  "ApiwikiswikiIdfoldersPOSTApiPermissionTestJotDownStackApi21E217B9POSTwikiswikiIdfolders6E20EFFC": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/wikis/*/folders"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..wikis.{wikiId}.folders"
+   }
+  },
+  "ApiwikiswikiIdfoldersPOSTCE4F6FC7": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfolders3B38ECA9"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/POST/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderId82D5AE7B": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdfolders3B38ECA9"
+    },
+    "PathPart": "{folderId}",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdOPTIONS3CC522AB": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderId82D5AE7B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdfoldersfolderId97711530": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/folders/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.folders.{folderId}"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdfoldersfolderIdB9261EA0": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/folders/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.folders.{folderId}"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdGET7E8D8DCA": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderId82D5AE7B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdPUTApiPermissionJotDownStackApi21E217B9PUTwikiswikiIdfoldersfolderIdC4630751": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/PUT/wikis/*/folders/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/PUT/ApiPermission.JotDownStackApi21E217B9.PUT..wikis.{wikiId}.folders.{folderId}"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdPUTApiPermissionTestJotDownStackApi21E217B9PUTwikiswikiIdfoldersfolderId6708DF13": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/PUT/wikis/*/folders/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/PUT/ApiPermission.Test.JotDownStackApi21E217B9.PUT..wikis.{wikiId}.folders.{folderId}"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdPUTC1C9BA72": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "PUT",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderId82D5AE7B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/PUT/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdDELETEApiPermissionJotDownStackApi21E217B9DELETEwikiswikiIdfoldersfolderIdCAECE29D": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/DELETE/wikis/*/folders/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/DELETE/ApiPermission.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}.folders.{folderId}"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdDELETEApiPermissionTestJotDownStackApi21E217B9DELETEwikiswikiIdfoldersfolderId3A516E0F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/DELETE/wikis/*/folders/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/DELETE/ApiPermission.Test.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}.folders.{folderId}"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdDELETE900D588D": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "DELETE",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderId82D5AE7B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/DELETE/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdexport77A188D8": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderId82D5AE7B"
+    },
+    "PathPart": "export",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/export/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdexportOPTIONSF2E04611": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderIdexport77A188D8"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/export/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdexportGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdfoldersfolderIdexport48E9135D": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiExportHandler8BAEFB46",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/folders/*/export"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/export/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.folders.{folderId}.export"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdexportGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdfoldersfolderIdexport6BE8DF96": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiExportHandler8BAEFB46",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/folders/*/export"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/export/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.folders.{folderId}.export"
+   }
+  },
+  "ApiwikiswikiIdfoldersfolderIdexportGET09FAD720": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiExportHandler8BAEFB46",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfoldersfolderIdexport77A188D8"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/folders/{folderId}/export/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdfiles492A9FAA": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "PathPart": "files",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesOPTIONS58655E54": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfiles492A9FAA"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdfilesB6EE9DD9": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/files"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.files"
+   }
+  },
+  "ApiwikiswikiIdfilesGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdfiles84551267": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/files"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.files"
+   }
+  },
+  "ApiwikiswikiIdfilesGET76CA4431": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfiles492A9FAA"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesPOSTApiPermissionJotDownStackApi21E217B9POSTwikiswikiIdfiles4179F37A": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/wikis/*/files"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/POST/ApiPermission.JotDownStackApi21E217B9.POST..wikis.{wikiId}.files"
+   }
+  },
+  "ApiwikiswikiIdfilesPOSTApiPermissionTestJotDownStackApi21E217B9POSTwikiswikiIdfiles9B24C35E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/wikis/*/files"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..wikis.{wikiId}.files"
+   }
+  },
+  "ApiwikiswikiIdfilesPOST02F69222": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfiles492A9FAA"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/POST/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesimport4459B20D": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdfiles492A9FAA"
+    },
+    "PathPart": "import",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/import/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesimportOPTIONSD8118F0A": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesimport4459B20D"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/import/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesimportPOSTApiPermissionJotDownStackApi21E217B9POSTwikiswikiIdfilesimportC60C6492": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/wikis/*/files/import"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/import/POST/ApiPermission.JotDownStackApi21E217B9.POST..wikis.{wikiId}.files.import"
+   }
+  },
+  "ApiwikiswikiIdfilesimportPOSTApiPermissionTestJotDownStackApi21E217B9POSTwikiswikiIdfilesimportF831661E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/wikis/*/files/import"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/import/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..wikis.{wikiId}.files.import"
+   }
+  },
+  "ApiwikiswikiIdfilesimportPOSTF3AD55CA": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesimport4459B20D"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/import/POST/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdB791EE67": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdfiles492A9FAA"
+    },
+    "PathPart": "{fileId}",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdOPTIONSD49A7CD7": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdB791EE67"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdfilesfileId1FDCD197": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/files/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.files.{fileId}"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdfilesfileId279FF2E2": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/files/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.files.{fileId}"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdGET7F64A24F": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdB791EE67"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdPUTApiPermissionJotDownStackApi21E217B9PUTwikiswikiIdfilesfileId57844A21": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/PUT/wikis/*/files/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/PUT/ApiPermission.JotDownStackApi21E217B9.PUT..wikis.{wikiId}.files.{fileId}"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdPUTApiPermissionTestJotDownStackApi21E217B9PUTwikiswikiIdfilesfileId863008B8": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/PUT/wikis/*/files/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/PUT/ApiPermission.Test.JotDownStackApi21E217B9.PUT..wikis.{wikiId}.files.{fileId}"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdPUT010A6725": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "PUT",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdB791EE67"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/PUT/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdDELETEApiPermissionJotDownStackApi21E217B9DELETEwikiswikiIdfilesfileId1C91A8BA": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/DELETE/wikis/*/files/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/DELETE/ApiPermission.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}.files.{fileId}"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdDELETEApiPermissionTestJotDownStackApi21E217B9DELETEwikiswikiIdfilesfileId065EB48E": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiFileHandler53850EA6",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/DELETE/wikis/*/files/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/DELETE/ApiPermission.Test.JotDownStackApi21E217B9.DELETE..wikis.{wikiId}.files.{fileId}"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdDELETE46FBB3DE": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "DELETE",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiFileHandler53850EA6",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdB791EE67"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/DELETE/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdexportBC8B8FD8": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdB791EE67"
+    },
+    "PathPart": "export",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/export/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdexportOPTIONSC9DD744F": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdexportBC8B8FD8"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/export/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdexportGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdfilesfileIdexport1B348BDC": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiExportHandler8BAEFB46",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/files/*/export"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/export/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.files.{fileId}.export"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdexportGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdfilesfileIdexport3878707F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiExportHandler8BAEFB46",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/files/*/export"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/export/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.files.{fileId}.export"
+   }
+  },
+  "ApiwikiswikiIdfilesfileIdexportGET63C3CD7A": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiExportHandler8BAEFB46",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdfilesfileIdexportBC8B8FD8"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/files/{fileId}/export/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesD616C513": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "PathPart": "images",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesOPTIONSF5867B91": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesD616C513"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesuploadCF6E356F": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdimagesD616C513"
+    },
+    "PathPart": "upload",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/upload/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesuploadOPTIONSF06AFAD4": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesuploadCF6E356F"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/upload/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesuploadPOSTApiPermissionJotDownStackApi21E217B9POSTwikiswikiIdimagesupload8D24A324": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiImageHandler824F3F28",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/wikis/*/images/upload"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/upload/POST/ApiPermission.JotDownStackApi21E217B9.POST..wikis.{wikiId}.images.upload"
+   }
+  },
+  "ApiwikiswikiIdimagesuploadPOSTApiPermissionTestJotDownStackApi21E217B9POSTwikiswikiIdimagesuploadB2EB540F": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiImageHandler824F3F28",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/wikis/*/images/upload"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/upload/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..wikis.{wikiId}.images.upload"
+   }
+  },
+  "ApiwikiswikiIdimagesuploadPOSTB19A67DF": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiImageHandler824F3F28",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesuploadCF6E356F"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/upload/POST/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesimageId94C8FB9E": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdimagesD616C513"
+    },
+    "PathPart": "{imageId}",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIdOPTIONS47CBFAEB": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesimageId94C8FB9E"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIdGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdimagesimageId71226822": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiImageHandler824F3F28",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/images/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.images.{imageId}"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIdGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdimagesimageIdA73ED974": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiImageHandler824F3F28",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/images/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.images.{imageId}"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIdGET36F9C0F2": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiImageHandler824F3F28",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesimageId94C8FB9E"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIddownloadC75EDC9E": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdimagesimageId94C8FB9E"
+    },
+    "PathPart": "download",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/download/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIddownloadOPTIONSBF54642D": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesimageIddownloadC75EDC9E"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/download/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIddownloadGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdimagesimageIddownloadD8F66568": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiImageHandler824F3F28",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/images/*/download"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/download/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.images.{imageId}.download"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIddownloadGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdimagesimageIddownload75292772": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiImageHandler824F3F28",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/images/*/download"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/download/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.images.{imageId}.download"
+   }
+  },
+  "ApiwikiswikiIdimagesimageIddownloadGET588DEAC5": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiImageHandler824F3F28",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdimagesimageIddownloadC75EDC9E"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/images/{imageId}/download/GET/Resource"
+   }
+  },
+  "ApiwikiswikiIdexportA6A50451": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiwikiswikiIdAFC60B42"
+    },
+    "PathPart": "export",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/export/Resource"
+   }
+  },
+  "ApiwikiswikiIdexportOPTIONS967401A2": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdexportA6A50451"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/export/OPTIONS/Resource"
+   }
+  },
+  "ApiwikiswikiIdexportGETApiPermissionJotDownStackApi21E217B9GETwikiswikiIdexportBB38A316": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiExportHandler8BAEFB46",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/wikis/*/export"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/export/GET/ApiPermission.JotDownStackApi21E217B9.GET..wikis.{wikiId}.export"
+   }
+  },
+  "ApiwikiswikiIdexportGETApiPermissionTestJotDownStackApi21E217B9GETwikiswikiIdexport39EF7528": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiExportHandler8BAEFB46",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/wikis/*/export"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/export/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..wikis.{wikiId}.export"
+   }
+  },
+  "ApiwikiswikiIdexportGETD12611CF": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiExportHandler8BAEFB46",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiwikiswikiIdexportA6A50451"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/export/GET/Resource"
+   }
+  },
+  "ApiAuthorizer787544C1": {
+   "Type": "AWS::ApiGateway::Authorizer",
+   "Properties": {
+    "IdentitySource": "method.request.header.Authorization",
+    "Name": "jot-down-authorizer",
+    "ProviderARNs": [
+     {
+      "Fn::GetAtt": [
+       "AuthUserPool8115E87F",
+       "Arn"
+      ]
+     }
+    ],
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    },
+    "Type": "COGNITO_USER_POOLS"
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Authorizer/Resource"
+   }
+  },
+  "CDKMetadata": {
+   "Type": "AWS::CDK::Metadata",
+   "Properties": {
+    "Analytics": "v2:deflate64:H4sIAAAAAAAA/22Q227CMAyGn4X7kLGyFyhM29W0qmzXKKSmGNq4ih0Qi/ruUw8cJnblz/Yv+7cTnbw869nEnHhqi8O0wo2OKzH2oMyJ15HnOi6CPYCo5daNNISMKrTnW3nMh2RhGFpVnJ2pqdjo+GU2FXTaHlplqXQopOM3g8+Iqq535QssKwQn963Hyrun0LSqMvWmMDqu0JUVCLm34KwgOXWF5dbdcwa+RmYk1yo0tY63g0bKafDcxVbxfG2YQVinXVCmwdIInMxZxxxY0gZ78Q1Tayk4Ua/QVHSuR+N32UpM2W8YIAem4C10z1MfIDsquuZIl+64ZOThj5dncBpkRx5/wPcGrlnbqmVgofrfKbfiH03m6YgF+N5Pf3TnE12pbK9b+1HIOj3x4/zPIE2QVjkqQO/56ZgkOpnp2WTPiFMfnGANOh/iL14RPLWKAgAA"
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/CDKMetadata/Default"
+   }
+  }
+ },
+ "Outputs": {
+  "ApiEndpoint1541504C": {
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Ref": "ApiCD79AAA0"
+      },
+      ".execute-api.us-east-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "ApiDeploymentStageprod95EFE650"
+      },
+      "/"
+     ]
+    ]
+   }
+  },
+  "ApiUrl": {
+   "Description": "API Gateway URL",
+   "Value": {
+    "Fn::Join": [
+     "",
+     [
+      "https://",
+      {
+       "Ref": "ApiCD79AAA0"
+      },
+      ".execute-api.us-east-1.",
+      {
+       "Ref": "AWS::URLSuffix"
+      },
+      "/",
+      {
+       "Ref": "ApiDeploymentStageprod95EFE650"
+      },
+      "/"
+     ]
+    ]
+   },
+   "Export": {
+    "Name": "JotDownApiUrl"
+   }
+  },
+  "UserPoolId": {
+   "Description": "Cognito User Pool ID",
+   "Value": {
+    "Ref": "AuthUserPool8115E87F"
+   },
+   "Export": {
+    "Name": "JotDownUserPoolId"
+   }
+  },
+  "UserPoolClientId": {
+   "Description": "Cognito App Client ID",
+   "Value": {
+    "Ref": "AuthAppClientC935EC2C"
+   },
+   "Export": {
+    "Name": "JotDownUserPoolClientId"
+   }
+  },
+  "BucketName": {
+   "Description": "S3 Content Bucket Name",
+   "Value": {
+    "Ref": "StorageContentBucket858D6C32"
+   },
+   "Export": {
+    "Name": "JotDownBucketName"
+   }
+  },
+  "TableName": {
+   "Description": "DynamoDB Table Name",
+   "Value": {
+    "Ref": "StorageMetadataTableFA6FB852"
+   },
+   "Export": {
+    "Name": "JotDownTableName"
+   }
+  }
+ },
+ "Parameters": {
+  "BootstrapVersion": {
+   "Type": "AWS::SSM::Parameter::Value<String>",
+   "Default": "/cdk-bootstrap/hnb659fds/version",
+   "Description": "Version of the CDK Bootstrap resources in this environment, automatically retrieved from SSM Parameter Store. [cdk:skip]"
+  }
+ },
+ "Rules": {
+  "CheckBootstrapVersion": {
+   "Assertions": [
+    {
+     "Assert": {
+      "Fn::Not": [
+       {
+        "Fn::Contains": [
+         [
+          "1",
+          "2",
+          "3",
+          "4",
+          "5"
+         ],
+         {
+          "Ref": "BootstrapVersion"
+         }
+        ]
+       }
+      ]
+     },
+     "AssertDescription": "CDK bootstrap stack version 6 required. Please run 'cdk bootstrap' with a recent version of the CDK CLI."
+    }
+   ]
+  }
+ }
+}

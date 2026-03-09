@@ -73,6 +73,9 @@ function Canister({
   onDragEnter,
   onDragLeave,
   onDrop,
+  onMergeWithPrevious,
+  onMergeNextIntoCurrent,
+  focusCaret,
   totalCanisters
 }) {
   const [editContent, setEditContent] = useState(canister.content)
@@ -83,12 +86,25 @@ function Canister({
     setEditContent(canister.content)
   }, [canister.content])
 
+  // Auto-resize the textarea to fit its content
+  const autoResize = useCallback(() => {
+    const ta = inputRef.current
+    if (!ta) return
+    ta.style.height = 'auto'
+    ta.style.height = ta.scrollHeight + 'px'
+  }, [])
+
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus()
-      inputRef.current.setSelectionRange(editContent.length, editContent.length)
+      if (focusCaret !== null && focusCaret !== undefined) {
+        inputRef.current.setSelectionRange(focusCaret, focusCaret)
+      } else {
+        inputRef.current.setSelectionRange(editContent.length, editContent.length)
+      }
+      autoResize()
     }
-  }, [isEditing])
+  }, [isEditing, focusCaret, autoResize])
 
   const handleClick = (e) => {
     // Don't handle click if this is part of a drag selection or if modifier keys are pressed
@@ -348,10 +364,14 @@ function Canister({
       }
     }
 
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // Split block at cursor position (Notion-style)
       e.preventDefault()
-      onSave(canister.id, editContent)
-      onCreateNew(canister.id)
+      const cursor = e.target.selectionStart
+      const before = editContent.substring(0, cursor)
+      const after = editContent.substring(cursor)
+      onSave(canister.id, before)
+      onCreateNew(canister.id, after)
     } else if (e.key === 'Escape') {
       e.preventDefault()
       onStopEditing()
@@ -361,13 +381,23 @@ function Canister({
       const tabEnd = e.target.selectionEnd
       const newContent = editContent.substring(0, tabStart) + '    ' + editContent.substring(tabEnd)
       setEditContent(newContent)
-
       setTimeout(() => {
         e.target.selectionStart = e.target.selectionEnd = tabStart + 4
+        autoResize()
       }, 0)
-    } else if ((e.key === 'Backspace' || e.key === 'Delete') && editContent === '') {
+    } else if (e.key === 'Backspace' && e.target.selectionStart === 0 && e.target.selectionEnd === 0) {
       e.preventDefault()
-      onDelete(canister.id, 'navigateToPrevious') // Pass navigation hint
+      if (editContent === '') {
+        // Empty block — delete and go to previous
+        onDelete(canister.id, 'navigateToPrevious')
+      } else {
+        // Has content — merge into previous block (Notion-style)
+        onMergeWithPrevious(canister.id, editContent)
+      }
+    } else if (e.key === 'Delete' && e.target.selectionStart === editContent.length && e.target.selectionEnd === editContent.length) {
+      // At end of block: pull next block up
+      e.preventDefault()
+      onMergeNextIntoCurrent(canister.id, editContent)
     } else if (e.key === 'ArrowUp') {
       // Navigate to previous canister when at the beginning or if moving up
       e.preventDefault()
@@ -379,15 +409,13 @@ function Canister({
       onSave(canister.id, editContent)
       onNavigateToNext(canister.id)
     } else if (e.key === 'ArrowLeft' && cursorPosition === 0) {
-      // Navigate to previous canister when at the beginning and pressing left
       e.preventDefault()
       onSave(canister.id, editContent)
-      onNavigateToPrevious(canister.id, 'end') // Position cursor at end
+      onNavigateToPrevious(canister.id, 'end')
     } else if (e.key === 'ArrowRight' && cursorPosition === textLength) {
-      // Navigate to next canister when at the end and pressing right
       e.preventDefault()
       onSave(canister.id, editContent)
-      onNavigateToNext(canister.id, 'start') // Position cursor at start
+      onNavigateToNext(canister.id, 'start')
     }
   }
 
@@ -397,20 +425,21 @@ function Canister({
 
   const handleChange = (e) => {
     setEditContent(e.target.value)
+    autoResize()
   }
 
   if (isEditing) {
     return (
       <div className="canister editing" ref={canisterRef}>
-        <input
+        <textarea
           ref={inputRef}
-          type="text"
           value={editContent}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onBlur={handleBlur}
           className="canister-input"
-          placeholder="Type your markdown here..."
+          placeholder="Type here…"
+          rows={1}
         />
       </div>
     )
@@ -709,11 +738,14 @@ function MultiLineEditor({
   )
 }
 
-// Main App Component
-function App() {
+// Canister Editor – the block-based markdown editor.
+// Accepts content from parent (AppShell file) and calls onSave when content changes.
+function CanisterEditor({ initialContent = '', onSave: onSaveExternal }) {
+  const { showConfirm } = useModal()
   const [canisters, setCanisters] = useState([])
   const [editingCanisterIds, setEditingCanisterIds] = useState(new Set())
   const [selectedCanisterIds, setSelectedCanisterIds] = useState(new Set())
+  const [caretTarget, setCaretTarget] = useState(null) // { id, pos }
   const [isMultiLineEditing, setIsMultiLineEditing] = useState(false)
   const [showSaveBtn, setShowSaveBtn] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -728,38 +760,47 @@ function App() {
   const lastScrollY = useRef(0)
   const undoStack = useRef([])
   const redoStack = useRef([])
+  const lastLoadedContent = useRef(initialContent)
 
-  // Load initial content from localStorage or create empty canister
+  // Load content from prop (API-backed file) or fall back to localStorage for offline
   useEffect(() => {
-    const savedContent = localStorage.getItem('jot-down-content')
+    const contentToLoad = initialContent || localStorage.getItem('jot-down-content') || ''
+    lastLoadedContent.current = contentToLoad
 
-    if (savedContent && savedContent.trim() !== '') {
-      // Convert content to canisters (split by lines)
-      const lines = savedContent.split('\n')
+    if (contentToLoad.trim() !== '') {
+      const lines = contentToLoad.split('\n')
       const initialCanisters = lines.map((line, index) => ({
-        id: `canister-${index}`,
+        id: `canister-${Date.now()}-${index}`,
         content: line,
         isEditing: false
       }))
       setCanisters(initialCanisters)
     } else {
-      // Create a single empty canister for new documents
       setCanisters([{
         id: `canister-${Date.now()}`,
         content: '',
         isEditing: false
       }])
     }
-  }, [])
+    setEditingCanisterIds(new Set())
+    setSelectedCanisterIds(new Set())
+    setIsMultiLineEditing(false)
+  }, [initialContent])
 
-  // Auto-save to localStorage when canisters change
+  // Auto-save: sync to localStorage and notify parent via onSave
   useEffect(() => {
     if (canisters.length > 0) {
       const content = canisters.map(canister => canister.content).join('\n')
       localStorage.setItem('jot-down-content', content)
+
+      // Only push to external save when content actually changed from what we loaded
+      if (onSaveExternal && content !== lastLoadedContent.current) {
+        lastLoadedContent.current = content
+        onSaveExternal(content)
+      }
       setHasUnsavedChanges(false)
     }
-  }, [canisters])
+  }, [canisters, onSaveExternal])
 
   // Handle scroll to show/hide save button
   useEffect(() => {
@@ -948,6 +989,7 @@ function App() {
     addToUndoStack(canisters)
     setEditingCanisterIds(new Set([canisterId]))
     setSelectedCanisterIds(new Set()) // Clear selection when editing
+    setCaretTarget(null) // clear any pending merge caret target
     setHasUnsavedChanges(true)
 
     // Set cursor position after component updates
@@ -979,24 +1021,26 @@ function App() {
     setSelectedCanisterIds(new Set())
   }
 
-  const createNewCanister = (afterCanisterId) => {
+  const createNewCanister = (afterCanisterId, initialContent = '') => {
     const afterIndex = canisters.findIndex(c => c.id === afterCanisterId)
     const newCanister = {
       id: `canister-${Date.now()}`,
-      content: '',
+      content: initialContent,
       isEditing: false
     }
 
+    addToUndoStack(canisters)
     setCanisters(prev => {
-      const newCanisters = [...prev]
-      newCanisters.splice(afterIndex + 1, 0, newCanister)
-      return newCanisters
+      const next = [...prev]
+      next.splice(afterIndex + 1, 0, newCanister)
+      return next
     })
 
-    // Start editing the new canister
+    // Focus new block at position 0 (text after cursor landed here)
     setTimeout(() => {
       setEditingCanisterIds(new Set([newCanister.id]))
       setSelectedCanisterIds(new Set())
+      setCaretTarget({ id: newCanister.id, pos: 0 })
     }, 0)
   }
 
@@ -1037,6 +1081,54 @@ function App() {
       const nextCanister = canisters[currentIndex + 1]
       editCanister(nextCanister.id, cursorPosition)
     }
+  }
+
+  // Merge current block into the previous one (Backspace at pos 0 with content)
+  const mergeWithPrevious = (canisterId, tailContent) => {
+    const currentIndex = canisters.findIndex(c => c.id === canisterId)
+    if (currentIndex <= 0) return
+
+    addToUndoStack(canisters)
+    const prevCanister = canisters[currentIndex - 1]
+    const joinPos = prevCanister.content.length
+    const mergedContent = prevCanister.content + tailContent
+
+    setCanisters(prev => {
+      const next = [...prev]
+      next[currentIndex - 1] = { ...prevCanister, content: mergedContent }
+      next.splice(currentIndex, 1)
+      return next
+    })
+
+    setTimeout(() => {
+      setEditingCanisterIds(new Set([prevCanister.id]))
+      setSelectedCanisterIds(new Set())
+      setCaretTarget({ id: prevCanister.id, pos: joinPos })
+    }, 0)
+  }
+
+  // Pull next block up into current one (Delete at end of block)
+  const mergeNextIntoCurrent = (canisterId, currentContent) => {
+    const currentIndex = canisters.findIndex(c => c.id === canisterId)
+    if (currentIndex >= canisters.length - 1) return
+
+    addToUndoStack(canisters)
+    const nextCanister = canisters[currentIndex + 1]
+    const joinPos = currentContent.length
+    const mergedContent = currentContent + nextCanister.content
+
+    setCanisters(prev => {
+      const next = [...prev]
+      next[currentIndex] = { ...prev[currentIndex], content: mergedContent }
+      next.splice(currentIndex + 1, 1)
+      return next
+    })
+
+    setTimeout(() => {
+      setEditingCanisterIds(new Set([canisterId]))
+      setSelectedCanisterIds(new Set())
+      setCaretTarget({ id: canisterId, pos: joinPos })
+    }, 0)
   }
 
   // Handle keyboard shortcuts
@@ -1360,9 +1452,9 @@ function App() {
     input.click()
   }
 
-  const handleNewFile = () => {
+  const handleNewFile = async () => {
     if (hasUnsavedChanges) {
-      const confirmed = window.confirm('You have unsaved changes. Are you sure you want to create a new file?')
+      const confirmed = await showConfirm('New File', 'You have unsaved changes. Create a new file anyway?')
       if (!confirmed) return
     }
     addToUndoStack(canisters)
@@ -1386,29 +1478,16 @@ function App() {
 
   return (
     <div className="app">
-      {/* Top bar */}
-      <div className="top-bar">
-        <div className="top-bar-left">
-          <button onClick={handleOpenFile} title="Open Markdown File">
-            📂 Open
-          </button>
-          <button onClick={handleNewFile} title="New Markdown File">
-            🆕 New
-          </button>
-          <button onClick={handleSaveAsMarkdown} title="Save as Markdown File (Cmd+S)">
-            💾 Save
-          </button>
-        </div>
-
-        <div className="top-bar-right">
-          <button
-            onClick={() => setShowTooltips(!showTooltips)}
-            title="Show Markdown Help"
-            className={showTooltips ? 'active' : ''}
-          >
-            ❓ Help
-          </button>
-        </div>
+      {/* Inline help toggle */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '4px 8px' }}>
+        <button
+          onClick={() => setShowTooltips(!showTooltips)}
+          title="Show Markdown Help"
+          className={showTooltips ? 'active' : ''}
+          style={{ fontSize: '12px', padding: '2px 8px', border: '1px solid #ddd', borderRadius: 4, background: showTooltips ? '#e0f0ff' : '#fff', cursor: 'pointer' }}
+        >
+          ❓ Help
+        </button>
       </div>
 
       {/* Tooltips Panel */}
@@ -1537,6 +1616,9 @@ function App() {
             onStopEditing={stopEditingCanister}
             onNavigateToPrevious={navigateToPrevious}
             onNavigateToNext={navigateToNext}
+            onMergeWithPrevious={mergeWithPrevious}
+            onMergeNextIntoCurrent={mergeNextIntoCurrent}
+            focusCaret={caretTarget?.id === canister.id ? caretTarget.pos : null}
             onMouseDown={handleCanisterMouseDown}
             onMouseEnter={handleCanisterMouseEnter}
             onDoubleClick={handleCanisterDoubleClick}
@@ -1572,6 +1654,38 @@ function App() {
         </button>
       </div>
     </div>
+  )
+}
+
+// =============================================
+// App – the root component with auth gating
+// =============================================
+import { useAuth } from './hooks/useAuth.jsx'
+import { useModal } from './components/ui/ModalProvider.jsx'
+import LoginPage from './components/auth/LoginPage'
+import AppShell from './components/layout/AppShell'
+
+function App() {
+  const { isAuthenticated, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <p>Loading…</p>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <LoginPage />
+  }
+
+  return (
+    <AppShell>
+      {({ content, onSave }) => (
+        <CanisterEditor initialContent={content} onSave={onSave} />
+      )}
+    </AppShell>
   )
 }
 
