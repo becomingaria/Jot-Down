@@ -185,22 +185,12 @@ export async function handler(event) {
             return response(200, { updated: true })
         }
 
-        // DELETE /wikis/{wikiId}/folders/{folderId} — Delete folder (move children up)
+        // DELETE /wikis/{wikiId}/folders/{folderId} — Delete folder (and files within)
         if (
             method === "DELETE" &&
             path === "/wikis/{wikiId}/folders/{folderId}"
         ) {
-            // Get the folder to find its parent
-            const folderResult = await ddb.send(
-                new GetCommand({
-                    TableName: TABLE_NAME,
-                    Key: { PK: `WIKI#${wikiId}`, SK: `FOLDER#${folderId}` },
-                }),
-            )
-            const parentFolderIdOfDeleted =
-                folderResult.Item?.parentFolderId || null
-
-            // Move all files in this folder up to the parent folder
+            // Find all files in this folder
             const filesResult = await ddb.send(
                 new QueryCommand({
                     TableName: TABLE_NAME,
@@ -214,47 +204,25 @@ export async function handler(event) {
                 }),
             )
 
+            // Delete files from S3 and DynamoDB
             for (const file of filesResult.Items || []) {
+                if (file.s3Key) {
+                    await s3.send(
+                        new DeleteObjectCommand({
+                            Bucket: BUCKET_NAME,
+                            Key: file.s3Key,
+                        }),
+                    )
+                }
                 await ddb.send(
-                    new UpdateCommand({
+                    new DeleteCommand({
                         TableName: TABLE_NAME,
                         Key: { PK: file.PK, SK: file.SK },
-                        UpdateExpression: "SET folderId = :pfid",
-                        ExpressionAttributeValues: {
-                            ":pfid": parentFolderIdOfDeleted,
-                        },
                     }),
                 )
             }
 
-            // Move child folders up to the parent folder
-            const childFoldersResult = await ddb.send(
-                new QueryCommand({
-                    TableName: TABLE_NAME,
-                    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                    FilterExpression: "parentFolderId = :fid",
-                    ExpressionAttributeValues: {
-                        ":pk": `WIKI#${wikiId}`,
-                        ":sk": "FOLDER#",
-                        ":fid": folderId,
-                    },
-                }),
-            )
-
-            for (const childFolder of childFoldersResult.Items || []) {
-                await ddb.send(
-                    new UpdateCommand({
-                        TableName: TABLE_NAME,
-                        Key: { PK: childFolder.PK, SK: childFolder.SK },
-                        UpdateExpression: "SET parentFolderId = :pfid",
-                        ExpressionAttributeValues: {
-                            ":pfid": parentFolderIdOfDeleted,
-                        },
-                    }),
-                )
-            }
-
-            // Delete only the folder itself
+            // Delete the folder itself
             await ddb.send(
                 new DeleteCommand({
                     TableName: TABLE_NAME,
@@ -262,7 +230,7 @@ export async function handler(event) {
                 }),
             )
 
-            return response(200, { deleted: true, movedUp: true })
+            return response(200, { deleted: true })
         }
 
         // --- FILE CRUD ---
@@ -285,7 +253,6 @@ export async function handler(event) {
             )
 
             // Save metadata to DynamoDB
-            const parentFileId = body.parentFileId || null
             const item = {
                 PK: `WIKI#${wikiId}`,
                 SK: `FILE#${fileId}`,
@@ -293,8 +260,6 @@ export async function handler(event) {
                 fileId,
                 wikiId,
                 folderId: body.folderId || null,
-                parentFileId,
-                fileType: body.fileType || "page",
                 name: body.name || "untitled.md",
                 s3Key,
                 size: Buffer.byteLength(content, "utf-8"),
@@ -305,53 +270,7 @@ export async function handler(event) {
             await ddb.send(
                 new PutCommand({ TableName: TABLE_NAME, Item: item }),
             )
-
-            // If this is a sub-page, append a subpage link to the parent file
-            if (parentFileId) {
-                try {
-                    const parentMeta = await ddb.send(
-                        new GetCommand({
-                            TableName: TABLE_NAME,
-                            Key: {
-                                PK: `WIKI#${wikiId}`,
-                                SK: `FILE#${parentFileId}`,
-                            },
-                        }),
-                    )
-                    if (parentMeta.Item?.s3Key) {
-                        const parentS3 = await s3.send(
-                            new GetObjectCommand({
-                                Bucket: BUCKET_NAME,
-                                Key: parentMeta.Item.s3Key,
-                            }),
-                        )
-                        let parentContent = await streamToString(parentS3.Body)
-                        const linkLine = `[\ud83d\udcc4 ${item.name}](subpage:${fileId})`
-                        parentContent =
-                            parentContent.trimEnd() + "\n\n" + linkLine
-                        await s3.send(
-                            new PutObjectCommand({
-                                Bucket: BUCKET_NAME,
-                                Key: parentMeta.Item.s3Key,
-                                Body: parentContent,
-                                ContentType: "text/markdown",
-                            }),
-                        )
-                    }
-                } catch (err) {
-                    console.warn(
-                        "Failed to append subpage link to parent:",
-                        err,
-                    )
-                }
-            }
-
-            return response(201, {
-                fileId,
-                name: item.name,
-                s3Key,
-                parentFileId,
-            })
+            return response(201, { fileId, name: item.name, s3Key })
         }
 
         // POST /wikis/{wikiId}/files/import — Import markdown file
@@ -380,7 +299,6 @@ export async function handler(event) {
                 fileId,
                 wikiId,
                 folderId: body.folderId || null,
-                parentFileId: body.parentFileId || null,
                 name: fileName,
                 s3Key,
                 size: Buffer.byteLength(content, "utf-8"),
@@ -420,8 +338,6 @@ export async function handler(event) {
                 fileId: item.fileId,
                 name: item.name,
                 folderId: item.folderId,
-                parentFileId: item.parentFileId || null,
-                fileType: item.fileType || "page",
                 size: item.size,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
@@ -456,8 +372,6 @@ export async function handler(event) {
                 fileId: metaResult.Item.fileId,
                 name: metaResult.Item.name,
                 folderId: metaResult.Item.folderId,
-                parentFileId: metaResult.Item.parentFileId || null,
-                fileType: metaResult.Item.fileType || "page",
                 content,
                 size: metaResult.Item.size,
                 createdAt: metaResult.Item.createdAt,
@@ -508,11 +422,6 @@ export async function handler(event) {
                 exprValues[":fid"] = body.folderId
             }
 
-            if (body.parentFileId !== undefined) {
-                updateExprParts.push("parentFileId = :pfid")
-                exprValues[":pfid"] = body.parentFileId
-            }
-
             await ddb.send(
                 new UpdateCommand({
                     TableName: TABLE_NAME,
@@ -540,48 +449,6 @@ export async function handler(event) {
             if (!metaResult.Item)
                 return response(404, { error: "File not found" })
 
-            // If this file is a sub-page, remove its link from the parent
-            if (metaResult.Item.parentFileId) {
-                try {
-                    const parentMeta = await ddb.send(
-                        new GetCommand({
-                            TableName: TABLE_NAME,
-                            Key: {
-                                PK: `WIKI#${wikiId}`,
-                                SK: `FILE#${metaResult.Item.parentFileId}`,
-                            },
-                        }),
-                    )
-                    if (parentMeta.Item?.s3Key) {
-                        const parentS3 = await s3.send(
-                            new GetObjectCommand({
-                                Bucket: BUCKET_NAME,
-                                Key: parentMeta.Item.s3Key,
-                            }),
-                        )
-                        let parentContent = await streamToString(parentS3.Body)
-                        // Remove the subpage link line
-                        const linkPattern = new RegExp(
-                            `\\n?\\n?\\[\ud83d\udcc4 [^\\]]*\\]\\(subpage:${fileId}\\)`,
-                        )
-                        parentContent = parentContent.replace(linkPattern, "")
-                        await s3.send(
-                            new PutObjectCommand({
-                                Bucket: BUCKET_NAME,
-                                Key: parentMeta.Item.s3Key,
-                                Body: parentContent,
-                                ContentType: "text/markdown",
-                            }),
-                        )
-                    }
-                } catch (err) {
-                    console.warn(
-                        "Failed to remove subpage link from parent:",
-                        err,
-                    )
-                }
-            }
-
             // Delete from S3
             await s3.send(
                 new DeleteObjectCommand({
@@ -596,44 +463,6 @@ export async function handler(event) {
                     TableName: TABLE_NAME,
                     Key: { PK: `WIKI#${wikiId}`, SK: `FILE#${fileId}` },
                 }),
-            )
-
-            // Re-parent any child files that used this file as parentFileId.
-            // Query all files for this wiki and find orphans.
-            const allFilesResult = await ddb.send(
-                new QueryCommand({
-                    TableName: TABLE_NAME,
-                    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                    ExpressionAttributeValues: {
-                        ":pk": `WIKI#${wikiId}`,
-                        ":sk": "FILE#",
-                    },
-                }),
-            )
-            const childFiles = (allFilesResult.Items || []).filter(
-                (item) => item.parentFileId === fileId,
-            )
-            // Move each child up: clear parentFileId, inherit the deleted file's folderId
-            const inheritedFolderId = metaResult.Item.folderId || null
-            await Promise.all(
-                childFiles.map((child) =>
-                    ddb.send(
-                        new UpdateCommand({
-                            TableName: TABLE_NAME,
-                            Key: {
-                                PK: `WIKI#${wikiId}`,
-                                SK: `FILE#${child.fileId}`,
-                            },
-                            UpdateExpression:
-                                "SET parentFileId = :null, folderId = :fid, updatedAt = :now",
-                            ExpressionAttributeValues: {
-                                ":null": null,
-                                ":fid": inheritedFolderId,
-                                ":now": new Date().toISOString(),
-                            },
-                        }),
-                    ),
-                ),
             )
 
             return response(200, { deleted: true })

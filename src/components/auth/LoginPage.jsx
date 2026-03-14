@@ -1,140 +1,89 @@
-import React, { useState } from 'react';
-import { useAuth } from '../../hooks/useAuth.jsx';
+import { useState } from "react"
+import { useNavigate } from "react-router-dom"
+import { useAuth } from "../../contexts/AuthContext"
+import { Box, Card, CardContent, TextField, Button, Typography, Alert } from "@mui/material"
 
-export default function LoginPage() {
-  const { login, handleNewPassword, error, pendingChallenge } = useAuth();
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [localError, setLocalError] = useState('');
-  const [loading, setLoading] = useState(false);
+export function LoginPage() {
+  const [email, setEmail] = useState("")
+  const [password, setPassword] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const { signIn } = useAuth()
+  const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLocalError('');
-    setLoading(true);
+    e.preventDefault()
+    setError("")
+    setLoading(true)
 
     try {
-      await login(email, password);
+      await signIn(email, password)
+      navigate("/wikis")
     } catch (err) {
-      setLocalError(err.message || 'Login failed');
+      setError(err.message || "Failed to sign in")
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
-  };
-
-  const handleNewPasswordSubmit = async (e) => {
-    e.preventDefault();
-    setLocalError('');
-
-    if (newPassword !== confirmPassword) {
-      setLocalError('Passwords do not match');
-      return;
-    }
-
-    if (newPassword.length < 8) {
-      setLocalError('Password must be at least 8 characters');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      await handleNewPassword(newPassword);
-    } catch (err) {
-      setLocalError(err.message || 'Password change failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  if (pendingChallenge) {
-    return (
-      <div className="login-page">
-        <div className="login-card">
-          <div className="login-header">
-            <h1>🧠 Jot-Down</h1>
-            <p>Set your new password</p>
-          </div>
-
-          <form onSubmit={handleNewPasswordSubmit}>
-            {(localError || error) && (
-              <div className="login-error">{localError || error}</div>
-            )}
-
-            <div className="login-field">
-              <label>New Password</label>
-              <input
-                type="password"
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-                placeholder="New password"
-                required
-                autoFocus
-              />
-            </div>
-
-            <div className="login-field">
-              <label>Confirm Password</label>
-              <input
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                placeholder="Confirm password"
-                required
-              />
-            </div>
-
-            <button type="submit" className="login-btn" disabled={loading}>
-              {loading ? 'Setting password...' : 'Set Password'}
-            </button>
-          </form>
-        </div>
-      </div>
-    );
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-header">
-          <h1>🧠 Jot-Down</h1>
-          <p>Sign in to your wiki</p>
-        </div>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        bgcolor: "background.default",
+      }}
+    >
+      <Card sx={{ maxWidth: 400, width: "100%", mx: 2 }}>
+        <CardContent sx={{ p: 4 }}>
+          <Typography variant="h4" component="h1" gutterBottom textAlign="center">
+            Jot-Down
+          </Typography>
+          <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
+            Sign in to your wiki
+          </Typography>
 
-        <form onSubmit={handleSubmit}>
-          {(localError || error) && (
-            <div className="login-error">{localError || error}</div>
+          {error && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {error}
+            </Alert>
           )}
 
-          <div className="login-field">
-            <label>Email</label>
-            <input
+          <form onSubmit={handleSubmit}>
+            <TextField
+              label="Email"
               type="email"
+              fullWidth
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
+              margin="normal"
               required
               autoFocus
             />
-          </div>
-
-          <div className="login-field">
-            <label>Password</label>
-            <input
+            <TextField
+              label="Password"
               type="password"
+              fullWidth
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Password"
+              margin="normal"
               required
             />
-          </div>
-
-          <button type="submit" className="login-btn" disabled={loading}>
-            {loading ? 'Signing in...' : 'Sign In'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
+            <Button
+              type="submit"
+              variant="contained"
+              fullWidth
+              size="large"
+              disabled={loading}
+              sx={{ mt: 3 }}
+            >
+              {loading ? "Signing in..." : "Sign In"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
+    </Box>
+  )
 }

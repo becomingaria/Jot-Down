@@ -294,7 +294,6 @@ export async function handler(event) {
                 wikiId,
                 folderId: body.folderId || null,
                 parentFileId,
-                fileType: body.fileType || "page",
                 name: body.name || "untitled.md",
                 s3Key,
                 size: Buffer.byteLength(content, "utf-8"),
@@ -421,7 +420,6 @@ export async function handler(event) {
                 name: item.name,
                 folderId: item.folderId,
                 parentFileId: item.parentFileId || null,
-                fileType: item.fileType || "page",
                 size: item.size,
                 createdAt: item.createdAt,
                 updatedAt: item.updatedAt,
@@ -457,7 +455,6 @@ export async function handler(event) {
                 name: metaResult.Item.name,
                 folderId: metaResult.Item.folderId,
                 parentFileId: metaResult.Item.parentFileId || null,
-                fileType: metaResult.Item.fileType || "page",
                 content,
                 size: metaResult.Item.size,
                 createdAt: metaResult.Item.createdAt,
@@ -506,11 +503,6 @@ export async function handler(event) {
             if (body.folderId !== undefined) {
                 updateExprParts.push("folderId = :fid")
                 exprValues[":fid"] = body.folderId
-            }
-
-            if (body.parentFileId !== undefined) {
-                updateExprParts.push("parentFileId = :pfid")
-                exprValues[":pfid"] = body.parentFileId
             }
 
             await ddb.send(
@@ -596,44 +588,6 @@ export async function handler(event) {
                     TableName: TABLE_NAME,
                     Key: { PK: `WIKI#${wikiId}`, SK: `FILE#${fileId}` },
                 }),
-            )
-
-            // Re-parent any child files that used this file as parentFileId.
-            // Query all files for this wiki and find orphans.
-            const allFilesResult = await ddb.send(
-                new QueryCommand({
-                    TableName: TABLE_NAME,
-                    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                    ExpressionAttributeValues: {
-                        ":pk": `WIKI#${wikiId}`,
-                        ":sk": "FILE#",
-                    },
-                }),
-            )
-            const childFiles = (allFilesResult.Items || []).filter(
-                (item) => item.parentFileId === fileId,
-            )
-            // Move each child up: clear parentFileId, inherit the deleted file's folderId
-            const inheritedFolderId = metaResult.Item.folderId || null
-            await Promise.all(
-                childFiles.map((child) =>
-                    ddb.send(
-                        new UpdateCommand({
-                            TableName: TABLE_NAME,
-                            Key: {
-                                PK: `WIKI#${wikiId}`,
-                                SK: `FILE#${child.fileId}`,
-                            },
-                            UpdateExpression:
-                                "SET parentFileId = :null, folderId = :fid, updatedAt = :now",
-                            ExpressionAttributeValues: {
-                                ":null": null,
-                                ":fid": inheritedFolderId,
-                                ":now": new Date().toISOString(),
-                            },
-                        }),
-                    ),
-                ),
             )
 
             return response(200, { deleted: true })

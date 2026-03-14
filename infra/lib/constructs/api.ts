@@ -94,7 +94,9 @@ export class ApiConstruct extends Construct {
             new cdk.aws_iam.PolicyStatement({
                 actions: [
                     "cognito-idp:AdminCreateUser",
+                    "cognito-idp:AdminDeleteUser",
                     "cognito-idp:AdminAddUserToGroup",
+                    "cognito-idp:AdminSetUserPassword",
                     "cognito-idp:ListUsers",
                     "cognito-idp:AdminGetUser",
                 ],
@@ -317,6 +319,34 @@ export class ApiConstruct extends Construct {
         wikiExport.addMethod(
             "GET",
             new apigateway.LambdaIntegration(exportHandler),
+            authMethodOptions,
+        )
+
+        // --- Admin routes ---
+        // /admin/users
+        const admin = this.api.root.addResource("admin")
+        const adminUsers = admin.addResource("users")
+        adminUsers.addMethod(
+            "GET",
+            new apigateway.LambdaIntegration(wikiHandler),
+            authMethodOptions,
+        )
+        adminUsers.addMethod(
+            "POST",
+            new apigateway.LambdaIntegration(wikiHandler),
+            authMethodOptions,
+        )
+
+        // /admin/users/{userId}
+        const adminUser = adminUsers.addResource("{userId}")
+        adminUser.addMethod(
+            "DELETE",
+            new apigateway.LambdaIntegration(wikiHandler),
+            authMethodOptions,
+        )
+        adminUser.addMethod(
+            "PUT",
+            new apigateway.LambdaIntegration(wikiHandler),
             authMethodOptions,
         )
     }

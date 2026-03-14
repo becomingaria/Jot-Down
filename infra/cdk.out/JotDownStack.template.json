@@ -760,7 +760,9 @@
       {
        "Action": [
         "cognito-idp:AdminCreateUser",
+        "cognito-idp:AdminDeleteUser",
         "cognito-idp:AdminAddUserToGroup",
+        "cognito-idp:AdminSetUserPassword",
         "cognito-idp:ListUsers",
         "cognito-idp:AdminGetUser"
        ],
@@ -794,7 +796,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
-     "S3Key": "37f9e388992d1f78bdbe884a96f3aa720b9fe3c9daa0d9f620d6a78e93e61e5d.zip"
+     "S3Key": "d9e14017230c3f1ed59e2faa2218f6062378448577d7b5c3bfe8151956741433.zip"
     },
     "Environment": {
      "Variables": {
@@ -827,7 +829,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "JotDownStack/Api/WikiHandler/Resource",
-    "aws:asset:path": "asset.37f9e388992d1f78bdbe884a96f3aa720b9fe3c9daa0d9f620d6a78e93e61e5d",
+    "aws:asset:path": "asset.d9e14017230c3f1ed59e2faa2218f6062378448577d7b5c3bfe8151956741433",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -996,7 +998,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
-     "S3Key": "5a3b39bf2f1a71b864f5cefee81ca890059e07b3d3241224221a2f8c566a025d.zip"
+     "S3Key": "ec16723d79c37c8c49907d3712a7f432e4976601b318bdd0578bdc549eccdc7c.zip"
     },
     "Environment": {
      "Variables": {
@@ -1029,7 +1031,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "JotDownStack/Api/FileHandler/Resource",
-    "aws:asset:path": "asset.5a3b39bf2f1a71b864f5cefee81ca890059e07b3d3241224221a2f8c566a025d",
+    "aws:asset:path": "asset.ec16723d79c37c8c49907d3712a7f432e4976601b318bdd0578bdc549eccdc7c",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1194,7 +1196,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
-     "S3Key": "048edf097e9c3beb9519b31dc79533d8c4bc928454d212949b2af05bc8b44c09.zip"
+     "S3Key": "9ddee78f43d40d02e794a6c3135acce84951e8d1e3cc0a978fbe9702ef9299ca.zip"
     },
     "Environment": {
      "Variables": {
@@ -1227,7 +1229,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "JotDownStack/Api/ImageHandler/Resource",
-    "aws:asset:path": "asset.048edf097e9c3beb9519b31dc79533d8c4bc928454d212949b2af05bc8b44c09",
+    "aws:asset:path": "asset.9ddee78f43d40d02e794a6c3135acce84951e8d1e3cc0a978fbe9702ef9299ca",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1385,7 +1387,7 @@
     ],
     "Code": {
      "S3Bucket": "cdk-hnb659fds-assets-544623438535-us-east-1",
-     "S3Key": "1ac3136137f2f5c7e576699279548c7dbe6635d41688e8919b5e32cf9bd4e425.zip"
+     "S3Key": "f70bb1fe9b7592facaa0057b12b65b896fad98b25d146ebee3a7e4809a58bdba.zip"
     },
     "Environment": {
      "Variables": {
@@ -1418,7 +1420,7 @@
    ],
    "Metadata": {
     "aws:cdk:path": "JotDownStack/Api/ExportHandler/Resource",
-    "aws:asset:path": "asset.1ac3136137f2f5c7e576699279548c7dbe6635d41688e8919b5e32cf9bd4e425",
+    "aws:asset:path": "asset.f70bb1fe9b7592facaa0057b12b65b896fad98b25d146ebee3a7e4809a58bdba",
     "aws:asset:is-bundled": false,
     "aws:asset:property": "Code"
    }
@@ -1488,7 +1490,7 @@
     "aws:cdk:path": "JotDownStack/Api/Api/Account"
    }
   },
-  "ApiDeploymentFE1E7282e9986b631efc859ec6d226b813a725f0": {
+  "ApiDeploymentFE1E728260d5ce363aeaf51cf4e72f96114bcaab": {
    "Type": "AWS::ApiGateway::Deployment",
    "Properties": {
     "Description": "Jot-Down Wiki API",
@@ -1497,6 +1499,16 @@
     }
    },
    "DependsOn": [
+    "ApiadminOPTIONS916DC1A5",
+    "ApiadminCAE76F32",
+    "ApiadminusersuserIdDELETEA1D897AC",
+    "ApiadminusersuserIdOPTIONS71E8829C",
+    "ApiadminusersuserIdPUT033B1599",
+    "ApiadminusersuserId6DF22B16",
+    "ApiadminusersGET84223498",
+    "ApiadminusersOPTIONSD516ED16",
+    "ApiadminusersPOST3F1E3D1F",
+    "Apiadminusers26E1596B",
     "ApiOPTIONS038759DB",
     "ApiwikiswikiIdDELETE70451DE3",
     "ApiwikiswikiIdexportGETD12611CF",
@@ -1566,7 +1578,7 @@
    "Type": "AWS::ApiGateway::Stage",
    "Properties": {
     "DeploymentId": {
-     "Ref": "ApiDeploymentFE1E7282e9986b631efc859ec6d226b813a725f0"
+     "Ref": "ApiDeploymentFE1E728260d5ce363aeaf51cf4e72f96114bcaab"
     },
     "MethodSettings": [
      {
@@ -5424,6 +5436,623 @@
    },
    "Metadata": {
     "aws:cdk:path": "JotDownStack/Api/Api/Default/wikis/{wikiId}/export/GET/Resource"
+   }
+  },
+  "ApiadminCAE76F32": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Fn::GetAtt": [
+      "ApiCD79AAA0",
+      "RootResourceId"
+     ]
+    },
+    "PathPart": "admin",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/Resource"
+   }
+  },
+  "ApiadminOPTIONS916DC1A5": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiadminCAE76F32"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/OPTIONS/Resource"
+   }
+  },
+  "Apiadminusers26E1596B": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "ApiadminCAE76F32"
+    },
+    "PathPart": "users",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/Resource"
+   }
+  },
+  "ApiadminusersOPTIONSD516ED16": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "Apiadminusers26E1596B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/OPTIONS/Resource"
+   }
+  },
+  "ApiadminusersGETApiPermissionJotDownStackApi21E217B9GETadminusers36D51446": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/GET/admin/users"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/GET/ApiPermission.JotDownStackApi21E217B9.GET..admin.users"
+   }
+  },
+  "ApiadminusersGETApiPermissionTestJotDownStackApi21E217B9GETadminusers689054B9": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/GET/admin/users"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..admin.users"
+   }
+  },
+  "ApiadminusersGET84223498": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "GET",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "Apiadminusers26E1596B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/GET/Resource"
+   }
+  },
+  "ApiadminusersPOSTApiPermissionJotDownStackApi21E217B9POSTadminusersB9207356": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/POST/admin/users"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/POST/ApiPermission.JotDownStackApi21E217B9.POST..admin.users"
+   }
+  },
+  "ApiadminusersPOSTApiPermissionTestJotDownStackApi21E217B9POSTadminusers049A060B": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/POST/admin/users"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..admin.users"
+   }
+  },
+  "ApiadminusersPOST3F1E3D1F": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "POST",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "Apiadminusers26E1596B"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/POST/Resource"
+   }
+  },
+  "ApiadminusersuserId6DF22B16": {
+   "Type": "AWS::ApiGateway::Resource",
+   "Properties": {
+    "ParentId": {
+     "Ref": "Apiadminusers26E1596B"
+    },
+    "PathPart": "{userId}",
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/Resource"
+   }
+  },
+  "ApiadminusersuserIdOPTIONS71E8829C": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "ApiKeyRequired": false,
+    "AuthorizationType": "NONE",
+    "HttpMethod": "OPTIONS",
+    "Integration": {
+     "IntegrationResponses": [
+      {
+       "ResponseParameters": {
+        "method.response.header.Access-Control-Allow-Headers": "'Content-Type,Authorization,X-Amz-Date,X-Api-Key,X-Amz-Security-Token'",
+        "method.response.header.Access-Control-Allow-Origin": "'*'",
+        "method.response.header.Access-Control-Allow-Methods": "'OPTIONS,GET,PUT,POST,DELETE,PATCH,HEAD'"
+       },
+       "StatusCode": "204"
+      }
+     ],
+     "RequestTemplates": {
+      "application/json": "{ statusCode: 200 }"
+     },
+     "Type": "MOCK"
+    },
+    "MethodResponses": [
+     {
+      "ResponseParameters": {
+       "method.response.header.Access-Control-Allow-Headers": true,
+       "method.response.header.Access-Control-Allow-Origin": true,
+       "method.response.header.Access-Control-Allow-Methods": true
+      },
+      "StatusCode": "204"
+     }
+    ],
+    "ResourceId": {
+     "Ref": "ApiadminusersuserId6DF22B16"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/OPTIONS/Resource"
+   }
+  },
+  "ApiadminusersuserIdDELETEApiPermissionJotDownStackApi21E217B9DELETEadminusersuserId98FEA691": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/DELETE/admin/users/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/DELETE/ApiPermission.JotDownStackApi21E217B9.DELETE..admin.users.{userId}"
+   }
+  },
+  "ApiadminusersuserIdDELETEApiPermissionTestJotDownStackApi21E217B9DELETEadminusersuserIdCE02B275": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/DELETE/admin/users/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/DELETE/ApiPermission.Test.JotDownStackApi21E217B9.DELETE..admin.users.{userId}"
+   }
+  },
+  "ApiadminusersuserIdDELETEA1D897AC": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "DELETE",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiadminusersuserId6DF22B16"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/DELETE/Resource"
+   }
+  },
+  "ApiadminusersuserIdPUTApiPermissionJotDownStackApi21E217B9PUTadminusersuserIdB5DF6C93": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/",
+       {
+        "Ref": "ApiDeploymentStageprod95EFE650"
+       },
+       "/PUT/admin/users/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/PUT/ApiPermission.JotDownStackApi21E217B9.PUT..admin.users.{userId}"
+   }
+  },
+  "ApiadminusersuserIdPUTApiPermissionTestJotDownStackApi21E217B9PUTadminusersuserId1A79C5FA": {
+   "Type": "AWS::Lambda::Permission",
+   "Properties": {
+    "Action": "lambda:InvokeFunction",
+    "FunctionName": {
+     "Fn::GetAtt": [
+      "ApiWikiHandlerF9D222D5",
+      "Arn"
+     ]
+    },
+    "Principal": "apigateway.amazonaws.com",
+    "SourceArn": {
+     "Fn::Join": [
+      "",
+      [
+       "arn:",
+       {
+        "Ref": "AWS::Partition"
+       },
+       ":execute-api:us-east-1:544623438535:",
+       {
+        "Ref": "ApiCD79AAA0"
+       },
+       "/test-invoke-stage/PUT/admin/users/*"
+      ]
+     ]
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/PUT/ApiPermission.Test.JotDownStackApi21E217B9.PUT..admin.users.{userId}"
+   }
+  },
+  "ApiadminusersuserIdPUT033B1599": {
+   "Type": "AWS::ApiGateway::Method",
+   "Properties": {
+    "AuthorizationType": "COGNITO_USER_POOLS",
+    "AuthorizerId": {
+     "Ref": "ApiAuthorizer787544C1"
+    },
+    "HttpMethod": "PUT",
+    "Integration": {
+     "IntegrationHttpMethod": "POST",
+     "Type": "AWS_PROXY",
+     "Uri": {
+      "Fn::Join": [
+       "",
+       [
+        "arn:",
+        {
+         "Ref": "AWS::Partition"
+        },
+        ":apigateway:us-east-1:lambda:path/2015-03-31/functions/",
+        {
+         "Fn::GetAtt": [
+          "ApiWikiHandlerF9D222D5",
+          "Arn"
+         ]
+        },
+        "/invocations"
+       ]
+      ]
+     }
+    },
+    "ResourceId": {
+     "Ref": "ApiadminusersuserId6DF22B16"
+    },
+    "RestApiId": {
+     "Ref": "ApiCD79AAA0"
+    }
+   },
+   "Metadata": {
+    "aws:cdk:path": "JotDownStack/Api/Api/Default/admin/users/{userId}/PUT/Resource"
    }
   },
   "ApiAuthorizer787544C1": {

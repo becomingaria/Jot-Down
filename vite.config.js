@@ -8,6 +8,6 @@ export default defineConfig({
         global: "globalThis",
     },
     server: {
-        port: 3000,
+        port: 5696,
     },
 })

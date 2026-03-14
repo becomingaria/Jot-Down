@@ -1,0 +1,671 @@
+/* ════════════════════════════════════════════════════════════════════
+   Jot-Down Block Editor — Notion-style CSS
+   ════════════════════════════════════════════════════════════════════ */
+
+/* ── Root ─────────────────────────────────────────────────────────── */
+.block-editor-root {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 0 24px 36px;
+    font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+        Arial, sans-serif;
+    color: #37352f;
+    line-height: 1.5;
+}
+
+/* ── Block container (row) ────────────────────────────────────────── */
+.block-container {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    padding: 3px 2px;
+    border-radius: 4px;
+    transition: background-color 0.1s ease;
+}
+
+.block-container:hover {
+    background-color: rgba(55, 53, 47, 0.03);
+}
+
+/* ── Editable area ────────────────────────────────────────────────── */
+.block-editable {
+    flex: 1;
+    outline: none;
+    min-height: 1.5em;
+    white-space: pre-wrap;
+    word-break: break-word;
+    caret-color: #37352f;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Placeholder via CSS — only shows when the div is truly empty */
+.block-editable:empty::before {
+    content: attr(data-placeholder);
+    color: rgba(55, 53, 47, 0.4);
+    pointer-events: none;
+}
+
+/* ── Prefixes (bullet, number, checkbox, callout icon) ────────────── */
+.block-prefix {
+    user-select: none;
+    flex-shrink: 0;
+    margin-right: 6px;
+    line-height: 1.5;
+    color: #37352f;
+}
+
+.block-prefix input[type="checkbox"] {
+    margin: 3px 0 0 0;
+    cursor: pointer;
+    width: 16px;
+    height: 16px;
+    accent-color: #2eaadc;
+}
+
+.callout-icon {
+    font-size: 1.3em;
+    margin-right: 8px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Block-type specific styles
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Headings ─────────────────────────────────────────────────────── */
+.block-heading-1 {
+    margin-top: 2em;
+    margin-bottom: 4px;
+}
+.block-heading-1 .block-editable {
+    font-size: 1.875em;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.block-heading-2 {
+    margin-top: 1.4em;
+    margin-bottom: 2px;
+}
+.block-heading-2 .block-editable {
+    font-size: 1.5em;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.block-heading-3 {
+    margin-top: 1em;
+    margin-bottom: 1px;
+}
+.block-heading-3 .block-editable {
+    font-size: 1.25em;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+/* ── Paragraph ────────────────────────────────────────────────────── */
+.block-paragraph .block-editable {
+    font-size: 1em;
+}
+
+/* ── Bullet list ──────────────────────────────────────────────────── */
+.block-bullet {
+    padding-left: 2px;
+}
+.block-bullet .block-prefix {
+    width: 24px;
+    text-align: center;
+    font-size: 1.5em;
+    line-height: 1;
+    margin-top: 1px;
+}
+
+/* ── Numbered list ────────────────────────────────────────────────── */
+.block-numbered {
+    padding-left: 2px;
+}
+.block-numbered .block-prefix {
+    width: 24px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+/* ── To-do ────────────────────────────────────────────────────────── */
+.block-todo {
+    padding-left: 2px;
+}
+.block-todo .block-prefix {
+    width: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 2px;
+}
+
+/* ── Quote ────────────────────────────────────────────────────────── */
+.block-quote {
+    border-left: 3px solid #37352f;
+    padding-left: 14px;
+    margin-left: 2px;
+}
+.block-quote .block-editable {
+    font-size: 1.1em;
+}
+
+/* ── Code ─────────────────────────────────────────────────────────── */
+.block-code {
+    background: #f7f6f3;
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin: 4px 0;
+}
+.block-code .block-editable {
+    font-family:
+        "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: 0.875em;
+    tab-size: 2;
+}
+
+/* ── Callout ──────────────────────────────────────────────────────── */
+.block-callout {
+    background: #fbf3db;
+    border-radius: 4px;
+    padding: 12px 12px 12px 8px;
+    margin: 4px 0;
+}
+
+/* ── Divider ──────────────────────────────────────────────────────── */
+.block-divider {
+    padding: 8px 0;
+    cursor: default;
+}
+.block-divider hr {
+    border: none;
+    border-top: 1px solid rgba(55, 53, 47, 0.16);
+    margin: 0;
+}
+.block-divider:hover hr {
+    border-color: rgba(55, 53, 47, 0.3);
+}
+
+/* ── Hover + button ──────────────────────────────────────────────── */
+.block-plus-wrapper {
+    position: absolute;
+    left: -44px;
+    top: 0;
+    z-index: 10;
+    /* Right padding extends past the container left edge so there is no
+       pixel gap when the mouse travels from block content into the gutter */
+    padding: 4px 20px 4px 4px;
+    height: 100%;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 4px;
+    visibility: hidden;
+    opacity: 0;
+    /* Delay hiding by 120ms — gives the cursor time to travel from the
+       block text into the gutter without the button blinking out */
+    transition:
+        opacity 0.15s 0.12s,
+        visibility 0.15s 0.12s;
+}
+.block-container:hover .block-plus-wrapper,
+.block-plus-wrapper:hover {
+    visibility: visible;
+    opacity: 1;
+    /* Show instantly; only the hide direction uses the 120ms delay */
+    transition-delay: 0s;
+}
+.block-plus-btn {
+    width: 24px;
+    height: 24px;
+    border: none;
+    border-radius: 4px;
+    background: transparent;
+    color: rgba(55, 53, 47, 0.35);
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        background-color 0.1s,
+        color 0.1s;
+}
+.block-plus-btn:hover {
+    background: rgba(55, 53, 47, 0.08);
+    color: rgba(55, 53, 47, 0.6);
+}
+
+/* ── Block type change menu ──────────────────────────────────────── */
+.block-type-menu {
+    position: absolute;
+    left: 0;
+    top: 28px;
+    z-index: 9999;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow:
+        0 4px 24px rgba(0, 0, 0, 0.15),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+    padding: 4px 0;
+    min-width: 200px;
+    max-height: 320px;
+    overflow-y: auto;
+    animation: slideIn 0.12s ease-out;
+}
+.block-type-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    font-size: 14px;
+    color: #37352f;
+    text-align: left;
+    border-radius: 0;
+}
+.block-type-menu-item:hover {
+    background: rgba(55, 53, 47, 0.06);
+}
+.block-type-menu-item.active {
+    background: rgba(45, 170, 219, 0.12);
+    color: #1976d2;
+}
+.block-type-menu-icon {
+    width: 28px;
+    text-align: center;
+    font-size: 16px;
+    flex-shrink: 0;
+}
+.block-type-menu-label {
+    flex: 1;
+}
+
+/* ── Image block ─────────────────────────────────────────────────── */
+.block-image {
+    padding: 4px 0;
+}
+.block-image-wrapper {
+    width: 100%;
+}
+.block-image-img {
+    max-width: 100%;
+    border-radius: 4px;
+    display: block;
+    margin: 0 auto;
+}
+.block-image-caption {
+    font-size: 0.875em;
+    color: rgba(55, 53, 47, 0.6);
+    text-align: center;
+    padding: 4px 0;
+    outline: none;
+    min-height: 1.2em;
+}
+.block-image-caption:empty::before {
+    content: attr(data-placeholder);
+    color: rgba(55, 53, 47, 0.35);
+    pointer-events: none;
+}
+.block-image-placeholder {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 24px;
+    border: 2px dashed rgba(55, 53, 47, 0.15);
+    border-radius: 8px;
+    justify-content: center;
+    flex: 1;
+}
+.block-image-upload-label {
+    cursor: pointer;
+}
+.block-image-upload-btn {
+    background: #f0f0f0;
+    padding: 6px 14px;
+    border-radius: 4px;
+    font-size: 14px;
+    cursor: pointer;
+    color: #37352f;
+}
+.block-image-upload-btn:hover {
+    background: #e0e0e0;
+}
+.block-image-or {
+    color: rgba(55, 53, 47, 0.4);
+    font-size: 13px;
+}
+.block-image-url-input {
+    border: 1px solid rgba(55, 53, 47, 0.15);
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 14px;
+    width: 240px;
+    outline: none;
+}
+.block-image-url-input:focus {
+    border-color: #2eaadc;
+}
+
+/* ── CSV block ───────────────────────────────────────────────────── */
+.block-csv {
+    padding: 4px 0;
+    flex-direction: column;
+}
+
+/* Wrapper around DataGrid + toolbar */
+.block-csv-wrapper {
+    width: 100%;
+    border: 1px solid rgba(55, 53, 47, 0.15);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+/* ── react-data-grid theme overrides ─────────────────────────────── */
+.block-csv-rdg {
+    --rdg-background-color: #fff;
+    --rdg-header-background-color: #f3f2ef;
+    --rdg-row-hover-background-color: rgba(45, 107, 219, 0.04);
+    --rdg-selection-color: #2eaadc;
+    --rdg-border-color: rgba(55, 53, 47, 0.1);
+    --rdg-header-row-height: 36px;
+    --rdg-row-height: 34px;
+    --rdg-font-size: 13px;
+    border: none;
+    border-radius: 0;
+}
+.block-csv-rdg .rdg-header-row {
+    border-bottom: 2px solid rgba(55, 53, 47, 0.15);
+    font-size: 0.75em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #5c5a52;
+}
+.block-csv-rdg .rdg-cell {
+    font-size: 0.875em;
+    color: #37352f;
+    border-right: 1px solid rgba(55, 53, 47, 0.08);
+    border-bottom: 1px solid rgba(55, 53, 47, 0.08);
+    padding: 0 10px;
+    line-height: var(--rdg-row-height);
+    outline: none;
+}
+.block-csv-rdg .rdg-cell:focus,
+.block-csv-rdg .rdg-cell[aria-selected="true"] {
+    box-shadow: inset 0 0 0 2px #2eaadc;
+    outline: none;
+}
+/* action column (delete row / add col) */
+.block-csv-rdg .rdg-cell:last-child {
+    border-right: none;
+    padding: 0;
+    text-align: center;
+    overflow: visible;
+}
+.block-csv-rdg .rdg-cell-editing {
+    padding: 0;
+}
+.block-csv-rdg .rdg-text-editor {
+    padding: 0 10px;
+    font-size: 0.875em;
+    font-family: inherit;
+    color: #37352f;
+    border: none;
+    background: #fff;
+    outline: none;
+    height: 100%;
+    width: 100%;
+    box-sizing: border-box;
+}
+
+/* ── Custom header cell ──────────────────────────────────────────── */
+.csv-header-cell {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 4px;
+    overflow: hidden;
+}
+.csv-header-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: default;
+}
+.csv-header-input {
+    flex: 1;
+    width: 100%;
+    border: none;
+    outline: none;
+    background: transparent;
+    font-size: inherit;
+    font-family: inherit;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #37352f;
+    padding: 0;
+    cursor: text;
+}
+
+/* ── Toolbar buttons ─────────────────────────────────────────────── */
+/* delete column × in header */
+.csv-col-delete-btn {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border: none;
+    background: rgba(55, 53, 47, 0.08);
+    color: rgba(55, 53, 47, 0.4);
+    font-size: 11px;
+    cursor: pointer;
+    border-radius: 2px;
+    padding: 0;
+    line-height: 1;
+    transition:
+        background 0.1s,
+        color 0.1s;
+}
+.csv-col-delete-btn:hover {
+    background: rgba(235, 87, 87, 0.15);
+    color: #eb5757;
+}
+/* delete row × */
+.csv-row-delete-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: transparent;
+    color: rgba(55, 53, 47, 0.25);
+    font-size: 13px;
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0;
+    line-height: 1;
+    transition:
+        background 0.1s,
+        color 0.1s;
+}
+.csv-row-delete-btn:hover {
+    background: rgba(235, 87, 87, 0.1);
+    color: #eb5757;
+}
+/* add column + */
+.csv-add-col-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border: none;
+    background: transparent;
+    color: rgba(55, 53, 47, 0.35);
+    font-size: 16px;
+    cursor: pointer;
+    border-radius: 3px;
+    padding: 0;
+    line-height: 1;
+    transition:
+        background 0.12s,
+        color 0.12s;
+}
+.csv-add-col-btn:hover {
+    background: rgba(55, 53, 47, 0.08);
+    color: #37352f;
+}
+/* add row button below grid */
+.csv-add-row-btn {
+    display: block;
+    width: 100%;
+    padding: 6px 12px;
+    border: none;
+    border-top: 1px solid rgba(55, 53, 47, 0.1);
+    background: transparent;
+    text-align: left;
+    font-size: 0.8em;
+    color: rgba(55, 53, 47, 0.4);
+    cursor: pointer;
+    transition:
+        background 0.12s,
+        color 0.12s;
+}
+.csv-add-row-btn:hover {
+    background: rgba(45, 107, 219, 0.04);
+    color: #2d6bdb;
+}
+
+/* ── Subpage link block ─────────────────────────────────────────── */
+.block-subpage-link {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    margin: 4px 0;
+    border: 1px solid #e3e2e0;
+    border-radius: 6px;
+    cursor: pointer;
+    background: #fafafa;
+    transition:
+        background 0.15s,
+        border-color 0.15s,
+        box-shadow 0.15s;
+    user-select: none;
+}
+.block-subpage-link:hover {
+    background: #f0f0f0;
+    border-color: #d0cfc9;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+.block-subpage-icon {
+    font-size: 1.2em;
+    flex-shrink: 0;
+}
+.block-subpage-name {
+    font-weight: 500;
+    color: #37352f;
+    text-decoration: underline;
+    text-decoration-color: rgba(55, 53, 47, 0.25);
+    text-underline-offset: 3px;
+    flex: 1;
+}
+.block-subpage-delete {
+    opacity: 0;
+    margin-left: auto;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: rgba(55, 53, 47, 0.45);
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    border-radius: 4px;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition:
+        opacity 0.1s,
+        background 0.1s,
+        color 0.1s;
+}
+.block-subpage-link:hover .block-subpage-delete {
+    opacity: 1;
+}
+.block-subpage-delete:hover {
+    background: rgba(235, 87, 87, 0.12);
+    color: #eb5757;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Inline rich-text formatting (rendered inside contentEditable)
+   ═══════════════════════════════════════════════════════════════════ */
+.block-editable strong {
+    font-weight: 700;
+}
+.block-editable em {
+    font-style: italic;
+}
+.block-editable code {
+    font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+    font-size: 0.9em;
+    background: rgba(135, 131, 120, 0.15);
+    border-radius: 3px;
+    padding: 0.2em 0.4em;
+}
+.block-editable s {
+    text-decoration: line-through;
+}
+.block-editable u {
+    text-decoration: underline;
+}
+.block-editable mark {
+    background: #fff8b8;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Slash menu animation
+   ═══════════════════════════════════════════════════════════════════ */
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.slash-menu {
+    animation: slideIn 0.12s ease-out;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Selection & focus
+   ═══════════════════════════════════════════════════════════════════ */
+::selection {
+    background-color: rgba(45, 170, 219, 0.3);
+}
+
+/* Smooth scrolling */
+html {
+    scroll-behavior: smooth;
+}

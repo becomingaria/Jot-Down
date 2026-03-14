@@ -18,7 +18,7 @@
         "validateOnSynth": false,
         "assumeRoleArn": "arn:${AWS::Partition}:iam::544623438535:role/cdk-hnb659fds-deploy-role-544623438535-us-east-1",
         "cloudFormationExecutionRoleArn": "arn:${AWS::Partition}:iam::544623438535:role/cdk-hnb659fds-cfn-exec-role-544623438535-us-east-1",
-        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-544623438535-us-east-1/4814fb3d9f0381b0511b751f45ab1a2141453666b627b535d466915c3294c213.json",
+        "stackTemplateAssetObjectUrl": "s3://cdk-hnb659fds-assets-544623438535-us-east-1/23df2b22f1304e0d564c6cbf42baf6ad1cadba6c0c28bba56e9a2376f88589bf.json",
         "requiresBootstrapStackVersion": 6,
         "bootstrapStackVersionSsmParameter": "/cdk-bootstrap/hnb659fds/version",
         "additionalDependencies": [
@@ -380,7 +380,7 @@
         "/JotDownStack/Api/Api/Deployment/Resource": [
           {
             "type": "aws:cdk:logicalId",
-            "data": "ApiDeploymentFE1E7282e9986b631efc859ec6d226b813a725f0"
+            "data": "ApiDeploymentFE1E728260d5ce363aeaf51cf4e72f96114bcaab"
           }
         ],
         "/JotDownStack/Api/Api/DeploymentStage.prod/Resource": [
@@ -1059,6 +1059,114 @@
           {
             "type": "aws:cdk:logicalId",
             "data": "ApiwikiswikiIdexportGETD12611CF"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminCAE76F32"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/OPTIONS/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminOPTIONS916DC1A5"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "Apiadminusers26E1596B"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/OPTIONS/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersOPTIONSD516ED16"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/GET/ApiPermission.JotDownStackApi21E217B9.GET..admin.users": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersGETApiPermissionJotDownStackApi21E217B9GETadminusers36D51446"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/GET/ApiPermission.Test.JotDownStackApi21E217B9.GET..admin.users": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersGETApiPermissionTestJotDownStackApi21E217B9GETadminusers689054B9"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/GET/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersGET84223498"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/POST/ApiPermission.JotDownStackApi21E217B9.POST..admin.users": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersPOSTApiPermissionJotDownStackApi21E217B9POSTadminusersB9207356"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/POST/ApiPermission.Test.JotDownStackApi21E217B9.POST..admin.users": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersPOSTApiPermissionTestJotDownStackApi21E217B9POSTadminusers049A060B"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/POST/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersPOST3F1E3D1F"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserId6DF22B16"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/OPTIONS/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdOPTIONS71E8829C"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/DELETE/ApiPermission.JotDownStackApi21E217B9.DELETE..admin.users.{userId}": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdDELETEApiPermissionJotDownStackApi21E217B9DELETEadminusersuserId98FEA691"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/DELETE/ApiPermission.Test.JotDownStackApi21E217B9.DELETE..admin.users.{userId}": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdDELETEApiPermissionTestJotDownStackApi21E217B9DELETEadminusersuserIdCE02B275"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/DELETE/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdDELETEA1D897AC"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/PUT/ApiPermission.JotDownStackApi21E217B9.PUT..admin.users.{userId}": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdPUTApiPermissionJotDownStackApi21E217B9PUTadminusersuserIdB5DF6C93"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/PUT/ApiPermission.Test.JotDownStackApi21E217B9.PUT..admin.users.{userId}": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdPUTApiPermissionTestJotDownStackApi21E217B9PUTadminusersuserId1A79C5FA"
+          }
+        ],
+        "/JotDownStack/Api/Api/Default/admin/users/{userId}/PUT/Resource": [
+          {
+            "type": "aws:cdk:logicalId",
+            "data": "ApiadminusersuserIdPUT033B1599"
           }
         ],
         "/JotDownStack/Api/Authorizer/Resource": [

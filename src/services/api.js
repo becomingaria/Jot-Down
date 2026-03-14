@@ -1,136 +1,240 @@
-// API client for Jot-Down backend
-import { getCurrentSession } from "./auth"
+const API_URL = import.meta.env.VITE_API_URL
 
-const API_URL = import.meta.env.VITE_API_URL || ""
+class ApiClient {
+    constructor() {
+        this.baseUrl = API_URL
+        this.idToken = null
+    }
 
-async function getAuthHeaders() {
-    try {
-        const session = await getCurrentSession()
-        return {
-            Authorization: `Bearer ${session.idToken}`,
+    setIdToken(token) {
+        this.idToken = token
+    }
+
+    async request(endpoint, options = {}) {
+        const url = `${this.baseUrl}${endpoint}`
+        const headers = {
             "Content-Type": "application/json",
+            ...options.headers,
         }
-    } catch {
-        throw new Error("Not authenticated")
-    }
-}
 
-async function request(method, path, body = null) {
-    const headers = await getAuthHeaders()
-    const options = { method, headers }
+        if (this.idToken) {
+            headers.Authorization = `Bearer ${this.idToken}`
+        }
 
-    if (body) {
-        options.body = JSON.stringify(body)
-    }
-
-    const res = await fetch(`${API_URL}${path}`, options)
-    const data = await res.json()
-
-    if (!res.ok) {
-        throw new Error(
-            data.error || `Request failed with status ${res.status}`,
-        )
-    }
-
-    return data
-}
-
-// --- Wiki API ---
-export const wikiApi = {
-    list: () => request("GET", "/wikis"),
-    get: (wikiId) => request("GET", `/wikis/${wikiId}`),
-    create: (name) => request("POST", "/wikis", { name }),
-    update: (wikiId, name) => request("PUT", `/wikis/${wikiId}`, { name }),
-    delete: (wikiId) => request("DELETE", `/wikis/${wikiId}`),
-}
-
-// --- Share API ---
-export const shareApi = {
-    list: (wikiId) => request("GET", `/wikis/${wikiId}/shares`),
-    create: (wikiId, email, accessLevel = "view") =>
-        request("POST", `/wikis/${wikiId}/shares`, { email, accessLevel }),
-    update: (wikiId, userId, accessLevel) =>
-        request("PUT", `/wikis/${wikiId}/shares/${userId}`, { accessLevel }),
-    delete: (wikiId, userId) =>
-        request("DELETE", `/wikis/${wikiId}/shares/${userId}`),
-}
-
-// --- Folder API ---
-export const folderApi = {
-    list: (wikiId) => request("GET", `/wikis/${wikiId}/folders`),
-    get: (wikiId, folderId) =>
-        request("GET", `/wikis/${wikiId}/folders/${folderId}`),
-    create: (wikiId, name, parentFolderId = null) =>
-        request("POST", `/wikis/${wikiId}/folders`, { name, parentFolderId }),
-    update: (wikiId, folderId, data) =>
-        request("PUT", `/wikis/${wikiId}/folders/${folderId}`, data),
-    delete: (wikiId, folderId) =>
-        request("DELETE", `/wikis/${wikiId}/folders/${folderId}`),
-}
-
-// --- File API ---
-export const fileApi = {
-    list: (wikiId, folderId = null) =>
-        request(
-            "GET",
-            `/wikis/${wikiId}/files${folderId ? `?folderId=${folderId}` : ""}`,
-        ),
-    get: (wikiId, fileId) => request("GET", `/wikis/${wikiId}/files/${fileId}`),
-    create: (wikiId, name, content = "", folderId = null) =>
-        request("POST", `/wikis/${wikiId}/files`, { name, content, folderId }),
-    update: (wikiId, fileId, data) =>
-        request("PUT", `/wikis/${wikiId}/files/${fileId}`, data),
-    delete: (wikiId, fileId) =>
-        request("DELETE", `/wikis/${wikiId}/files/${fileId}`),
-    import: (wikiId, name, content, folderId = null) =>
-        request("POST", `/wikis/${wikiId}/files/import`, {
-            name,
-            content,
-            folderId,
-        }),
-}
-
-// --- Image API ---
-export const imageApi = {
-    upload: async (wikiId, file) => {
-        const headers = await getAuthHeaders()
-        // Convert file to base64
-        const buffer = await file.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
-
-        const res = await fetch(`${API_URL}/wikis/${wikiId}/images/upload`, {
-            method: "POST",
+        const config = {
+            ...options,
             headers,
-            body: JSON.stringify({ data: base64, filename: file.name }),
+        }
+
+        const response = await fetch(url, config)
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({
+                error: "Request failed",
+            }))
+            throw new Error(error.error || `HTTP ${response.status}`)
+        }
+
+        // Handle empty responses
+        const contentType = response.headers.get("content-type")
+        if (contentType && contentType.includes("application/json")) {
+            return response.json()
+        }
+
+        return response
+    }
+
+    // Wiki endpoints
+    async getWikis() {
+        return this.request("/wikis")
+    }
+
+    async createWiki(name) {
+        return this.request("/wikis", {
+            method: "POST",
+            body: JSON.stringify({ name }),
+        })
+    }
+
+    async getWiki(wikiId) {
+        return this.request(`/wikis/${wikiId}`)
+    }
+
+    async updateWiki(wikiId, name) {
+        return this.request(`/wikis/${wikiId}`, {
+            method: "PUT",
+            body: JSON.stringify({ name }),
+        })
+    }
+
+    async deleteWiki(wikiId) {
+        return this.request(`/wikis/${wikiId}`, {
+            method: "DELETE",
+        })
+    }
+
+    // Share endpoints
+    async getShares(wikiId) {
+        return this.request(`/wikis/${wikiId}/shares`)
+    }
+
+    async createShare(wikiId, email, accessLevel = "view") {
+        return this.request(`/wikis/${wikiId}/shares`, {
+            method: "POST",
+            body: JSON.stringify({ email, accessLevel }),
+        })
+    }
+
+    async updateShare(wikiId, userId, accessLevel) {
+        return this.request(`/wikis/${wikiId}/shares/${userId}`, {
+            method: "PUT",
+            body: JSON.stringify({ accessLevel }),
+        })
+    }
+
+    async deleteShare(wikiId, userId) {
+        return this.request(`/wikis/${wikiId}/shares/${userId}`, {
+            method: "DELETE",
+        })
+    }
+
+    // Folder endpoints
+    async getFolders(wikiId) {
+        return this.request(`/wikis/${wikiId}/folders`)
+    }
+
+    async createFolder(wikiId, name, parentFolderId = null) {
+        return this.request(`/wikis/${wikiId}/folders`, {
+            method: "POST",
+            body: JSON.stringify({ name, parentFolderId }),
+        })
+    }
+
+    async getFolder(wikiId, folderId) {
+        return this.request(`/wikis/${wikiId}/folders/${folderId}`)
+    }
+
+    async updateFolder(wikiId, folderId, data) {
+        return this.request(`/wikis/${wikiId}/folders/${folderId}`, {
+            method: "PUT",
+            body: JSON.stringify(data),
+        })
+    }
+
+    async deleteFolder(wikiId, folderId) {
+        return this.request(`/wikis/${wikiId}/folders/${folderId}`, {
+            method: "DELETE",
+        })
+    }
+
+    // File endpoints
+    async getFiles(wikiId, folderId = null) {
+        const query = folderId ? `?folderId=${folderId}` : ""
+        return this.request(`/wikis/${wikiId}/files${query}`)
+    }
+
+    async createFile(
+        wikiId,
+        name,
+        content = "",
+        folderId = null,
+        parentFileId = null,
+    ) {
+        return this.request(`/wikis/${wikiId}/files`, {
+            method: "POST",
+            body: JSON.stringify({ name, content, folderId, parentFileId }),
+        })
+    }
+
+    async getFile(wikiId, fileId) {
+        return this.request(`/wikis/${wikiId}/files/${fileId}`)
+    }
+
+    async updateFile(wikiId, fileId, data) {
+        return this.request(`/wikis/${wikiId}/files/${fileId}`, {
+            method: "PUT",
+            body: JSON.stringify(data),
+        })
+    }
+
+    async deleteFile(wikiId, fileId) {
+        return this.request(`/wikis/${wikiId}/files/${fileId}`, {
+            method: "DELETE",
+        })
+    }
+
+    // Image endpoints
+    async uploadImage(wikiId, file) {
+        // Convert file to base64
+        const base64 = await new Promise((resolve) => {
+            const reader = new FileReader()
+            reader.onloadend = () => {
+                const base64String = reader.result.split(",")[1]
+                resolve(base64String)
+            }
+            reader.readAsDataURL(file)
         })
 
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error || "Upload failed")
-        return data
-    },
-    getUrl: (wikiId, imageId) =>
-        request("GET", `/wikis/${wikiId}/images/${imageId}`),
-    downloadUrl: (wikiId, imageId) =>
-        `${API_URL}/wikis/${wikiId}/images/${imageId}/download`,
+        return this.request(`/wikis/${wikiId}/images/upload`, {
+            method: "POST",
+            body: JSON.stringify({
+                filename: file.name,
+                data: base64,
+                contentType: file.type,
+            }),
+        })
+    }
+
+    async getImageUrl(wikiId, imageId) {
+        return this.request(`/wikis/${wikiId}/images/${imageId}`)
+    }
+
+    // Export endpoints
+    async exportFile(wikiId, fileId, format = "md") {
+        const response = await this.request(
+            `/wikis/${wikiId}/files/${fileId}/export?format=${format}`,
+        )
+        return response
+    }
+
+    async exportFolder(wikiId, folderId, format = "zip") {
+        const response = await this.request(
+            `/wikis/${wikiId}/folders/${folderId}/export?format=${format}`,
+        )
+        return response
+    }
+
+    async exportWiki(wikiId, format = "zip") {
+        const response = await this.request(
+            `/wikis/${wikiId}/export?format=${format}`,
+        )
+        return response
+    }
+
+    // Admin user management
+    async listUsers() {
+        return this.request("/admin/users")
+    }
+
+    async createUser(email, temporaryPassword, group) {
+        return this.request("/admin/users", {
+            method: "POST",
+            body: JSON.stringify({ email, temporaryPassword, group }),
+        })
+    }
+
+    async deleteUser(username) {
+        return this.request(`/admin/users/${encodeURIComponent(username)}`, {
+            method: "DELETE",
+        })
+    }
+
+    async resetPassword(username, temporaryPassword) {
+        return this.request(`/admin/users/${encodeURIComponent(username)}`, {
+            method: "PUT",
+            body: JSON.stringify({ temporaryPassword }),
+        })
+    }
 }
 
-// --- Export API ---
-export const exportApi = {
-    fileAsMd: (wikiId, fileId) =>
-        `${API_URL}/wikis/${wikiId}/files/${fileId}/export?format=md`,
-    fileAsDocx: (wikiId, fileId) =>
-        `${API_URL}/wikis/${wikiId}/files/${fileId}/export?format=docx`,
-    folder: (wikiId, folderId) =>
-        `${API_URL}/wikis/${wikiId}/folders/${folderId}/export?format=zip`,
-    wiki: (wikiId) => `${API_URL}/wikis/${wikiId}/export?format=zip`,
-}
-
-// --- Admin API ---
-export const adminApi = {
-    createUser: (email, temporaryPassword) =>
-        request("POST", "/wikis", {
-            action: "createUser",
-            email,
-            temporaryPassword,
-        }),
-}
+export const apiClient = new ApiClient()

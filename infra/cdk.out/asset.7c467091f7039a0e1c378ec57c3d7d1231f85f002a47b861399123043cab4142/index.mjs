@@ -598,44 +598,6 @@ export async function handler(event) {
                 }),
             )
 
-            // Re-parent any child files that used this file as parentFileId.
-            // Query all files for this wiki and find orphans.
-            const allFilesResult = await ddb.send(
-                new QueryCommand({
-                    TableName: TABLE_NAME,
-                    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                    ExpressionAttributeValues: {
-                        ":pk": `WIKI#${wikiId}`,
-                        ":sk": "FILE#",
-                    },
-                }),
-            )
-            const childFiles = (allFilesResult.Items || []).filter(
-                (item) => item.parentFileId === fileId,
-            )
-            // Move each child up: clear parentFileId, inherit the deleted file's folderId
-            const inheritedFolderId = metaResult.Item.folderId || null
-            await Promise.all(
-                childFiles.map((child) =>
-                    ddb.send(
-                        new UpdateCommand({
-                            TableName: TABLE_NAME,
-                            Key: {
-                                PK: `WIKI#${wikiId}`,
-                                SK: `FILE#${child.fileId}`,
-                            },
-                            UpdateExpression:
-                                "SET parentFileId = :null, folderId = :fid, updatedAt = :now",
-                            ExpressionAttributeValues: {
-                                ":null": null,
-                                ":fid": inheritedFolderId,
-                                ":now": new Date().toISOString(),
-                            },
-                        }),
-                    ),
-                ),
-            )
-
             return response(200, { deleted: true })
         }
 

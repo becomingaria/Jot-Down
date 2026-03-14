@@ -620,10 +620,7 @@ export async function handler(event) {
                     ddb.send(
                         new UpdateCommand({
                             TableName: TABLE_NAME,
-                            Key: {
-                                PK: `WIKI#${wikiId}`,
-                                SK: `FILE#${child.fileId}`,
-                            },
+                            Key: { PK: `WIKI#${wikiId}`, SK: `FILE#${child.fileId}` },
                             UpdateExpression:
                                 "SET parentFileId = :null, folderId = :fid, updatedAt = :now",
                             ExpressionAttributeValues: {
