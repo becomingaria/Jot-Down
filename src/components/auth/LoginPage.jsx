@@ -28,7 +28,7 @@ export function LoginPage() {
       if (err.code === "NewPasswordRequired") {
         setNeedsNewPassword(true)
       } else {
-        setError(err.message || "Failed to sign in")
+        setError(`${err.code || err.name || "Error"}: ${err.message || "Failed to sign in"}`)
       }
     } finally {
       setLoading(false)
