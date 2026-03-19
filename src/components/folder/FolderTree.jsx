@@ -222,10 +222,8 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
   handleUndoRef.current = async () => {
     if (!undoStack.length) return
     const last = undoStack[undoStack.length - 1]
-    console.log("%c[DnD] undo triggered", "color:#ff5722;font-weight:bold", last)
     try {
       for (const { id, type, fromFolderId, fromParentFileId } of last.items) {
-        console.log("[DnD] undo item:", { id, type, fromFolderId, fromParentFileId })
         if (type === "file") await updateFile(id, { folderId: fromFolderId, parentFileId: fromParentFileId })
         else await updateFolder(id, { parentFolderId: fromFolderId })
       }
@@ -241,7 +239,6 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
       setDropTarget(null)
       stopDragScroll()
       if (hoverExpandTimerRef.current) { clearTimeout(hoverExpandTimerRef.current); hoverExpandTimerRef.current = null }
-      console.log(`%c[DnD] reset via "${source}"`, "color:#9e9e9e")
     }
     const resetDragend = () => reset("dragend")
     const resetDrop = () => reset("drop")
@@ -638,20 +635,50 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
   const getOrderedChildren = (parentKey) => {
     let fileItems = [], folderItems = []
     if (parentKey === "root") {
-      fileItems = getRootFiles().map(f => ({ type: "file", id: f.fileId, item: f }))
-      folderItems = rootFolders.map(f => ({ type: "folder", id: f.folderId, item: f }))
+      fileItems = getRootFiles().map((f) => ({ type: "file", id: f.fileId, item: f }))
+      folderItems = rootFolders.map((f) => ({ type: "folder", id: f.folderId, item: f }))
     } else if (parentKey.startsWith("folder:")) {
       const fid = parentKey.slice(7)
-      fileItems = getFilesForFolder(fid).map(f => ({ type: "file", id: f.fileId, item: f }))
-      folderItems = (folderMap[fid]?.children || []).map(f => ({ type: "folder", id: f.folderId, item: f }))
+      fileItems = getFilesForFolder(fid).map((f) => ({ type: "file", id: f.fileId, item: f }))
+      folderItems = (folderMap[fid]?.children || []).map((f) => ({
+        type: "folder",
+        id: f.folderId,
+        item: f,
+      }))
     } else if (parentKey.startsWith("file:")) {
-      fileItems = getSubPages(parentKey.slice(5)).map(f => ({ type: "file", id: f.fileId, item: f }))
+      fileItems = getSubPages(parentKey.slice(5)).map((f) => ({
+        type: "file",
+        id: f.fileId,
+        item: f,
+      }))
     }
+
     const all = [...fileItems, ...folderItems]
-    const stored = localOrder[parentKey]
-    if (!stored?.length) return all
-    const pos = Object.fromEntries(stored.map((id, i) => [id, i]))
-    return [...all].sort((a, b) => (pos[a.id] ?? 9999) - (pos[b.id] ?? 9999))
+    const stored = Array.isArray(localOrder[parentKey]) ? localOrder[parentKey] : []
+
+    if (!stored.length) return all
+
+    // Remove duplicates and only include known items
+    const idToItem = new Map(all.map((item) => [item.id, item]))
+    const seen = new Set()
+    const ordered = []
+
+    for (const id of stored) {
+      if (!seen.has(id) && idToItem.has(id)) {
+        ordered.push(idToItem.get(id))
+        seen.add(id)
+      }
+    }
+
+    // Append any items that were not in localOrder (new items, etc.)
+    for (const item of all) {
+      if (!seen.has(item.id)) {
+        ordered.push(item)
+        seen.add(item.id)
+      }
+    }
+
+    return ordered
   }
 
   // Mobile reordering helper (up/down buttons)
