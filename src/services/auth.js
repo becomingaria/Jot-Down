@@ -21,14 +21,15 @@ let pendingUserAttributes = null
 export const authService = {
     // Sign in
     signIn(email, password) {
+        const normalizedEmail = String(email || "").trim().toLowerCase()
         return new Promise((resolve, reject) => {
             const authenticationDetails = new AuthenticationDetails({
-                Username: email,
+                Username: normalizedEmail,
                 Password: password,
             })
 
             const cognitoUser = new CognitoUser({
-                Username: email,
+                Username: normalizedEmail,
                 Pool: userPool,
             })
 
@@ -62,9 +63,11 @@ export const authService = {
                     })
                 },
                 onFailure: (err) => {
+                    console.error("Cognito signIn error", err)
                     reject(err)
                 },
                 newPasswordRequired: (userAttributes) => {
+                    console.info("Cognito newPasswordRequired challenge")
                     // Strip read-only attributes Cognito won't accept back
                     delete userAttributes.email_verified
                     delete userAttributes.phone_number_verified
@@ -98,9 +101,21 @@ export const authService = {
                                 email: result.getIdToken().payload.email,
                                 userId: result.getIdToken().payload.sub,
                                 groups: (() => {
-                                    const raw = result.getIdToken().payload["cognito:groups"]
-                                    const list = typeof raw === "string" ? raw.split(",") : raw || []
-                                    return Array.isArray(list) ? list.map((g) => (typeof g === "string" ? g.toLowerCase() : g)) : []
+                                    const raw =
+                                        result.getIdToken().payload[
+                                            "cognito:groups"
+                                        ]
+                                    const list =
+                                        typeof raw === "string"
+                                            ? raw.split(",")
+                                            : raw || []
+                                    return Array.isArray(list)
+                                        ? list.map((g) =>
+                                              typeof g === "string"
+                                                  ? g.toLowerCase()
+                                                  : g,
+                                          )
+                                        : []
                                 })(),
                             },
                         })
