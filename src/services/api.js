@@ -201,10 +201,10 @@ class ApiClient {
     }
 
     // Version endpoints
-    async createVersion(wikiId, fileId, content) {
+    async createVersion(wikiId, fileId, content, label) {
         return this.request(`/wikis/${wikiId}/files/${fileId}/versions`, {
             method: "POST",
-            body: JSON.stringify({ content }),
+            body: JSON.stringify({ content, label }),
         })
     }
 
@@ -213,8 +213,11 @@ class ApiClient {
     }
 
     async getVersion(wikiId, fileId, versionId) {
+        // versionId can contain characters (e.g. "#") that must be URL-encoded
         return this.request(
-            `/wikis/${wikiId}/files/${fileId}/versions/${versionId}`,
+            `/wikis/${wikiId}/files/${fileId}/versions/${encodeURIComponent(
+                versionId,
+            )}`,
         )
     }
 

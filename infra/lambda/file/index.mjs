@@ -400,14 +400,15 @@ export async function handler(event) {
 
         // GET /wikis/{wikiId}/files — List files
         if (method === "GET" && path === "/wikis/{wikiId}/files") {
-            let filterExpr = undefined
+            let filterExpr = "entityType = :et"
             let filterValues = {
                 ":pk": `WIKI#${wikiId}`,
                 ":sk": "FILE#",
+                ":et": "file",
             }
 
             if (qs.folderId) {
-                filterExpr = "folderId = :fid"
+                filterExpr += " AND folderId = :fid"
                 filterValues[":fid"] = qs.folderId
             }
 
@@ -415,7 +416,7 @@ export async function handler(event) {
                 new QueryCommand({
                     TableName: TABLE_NAME,
                     KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                    ...(filterExpr ? { FilterExpression: filterExpr } : {}),
+                    FilterExpression: filterExpr,
                     ExpressionAttributeValues: filterValues,
                 }),
             )
@@ -558,6 +559,7 @@ export async function handler(event) {
                 fileId,
                 versionId,
                 content: body.content || "",
+                label: body.label || "Checkpoint",
                 createdAt: now,
                 createdBy: user.userId,
             }
@@ -621,6 +623,7 @@ export async function handler(event) {
 
             const versions = (result.Items || []).map((item) => ({
                 versionId: item.versionId,
+                label: item.label || "Checkpoint",
                 createdAt: item.createdAt,
                 createdBy: item.createdBy,
             }))
@@ -633,7 +636,8 @@ export async function handler(event) {
             method === "GET" &&
             path === "/wikis/{wikiId}/files/{fileId}/versions/{versionId}"
         ) {
-            const { versionId } = event.pathParameters || {}
+            const { versionId: rawVersionId } = event.pathParameters || {}
+            const versionId = decodeURIComponent(rawVersionId)
             const sk = `FILE#${fileId}#VERSION#${versionId}`
             const result = await ddb.send(
                 new GetCommand({
@@ -647,6 +651,7 @@ export async function handler(event) {
 
             return response(200, {
                 versionId: result.Item.versionId,
+                label: result.Item.label || "Checkpoint",
                 createdAt: result.Item.createdAt,
                 createdBy: result.Item.createdBy,
                 content: result.Item.content,

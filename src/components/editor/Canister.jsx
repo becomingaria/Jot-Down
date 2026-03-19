@@ -10,14 +10,17 @@ import {
   Menu,
   MenuItem,
   ListItemText,
-  ListItemIcon,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
   Button,
+  Drawer,
+  Chip,
+  Stack,
+  CircularProgress,
 } from "@mui/material"
-import { Save, Visibility, Edit, History, Download, Bookmark, CompareArrows } from "@mui/icons-material"
+import { Save, Visibility, Edit, History, Download, Close, CheckCircle } from "@mui/icons-material"
 import { processMarkdown, extractCSVBlocks } from "../../utils/markdown"
 import { CsvTable } from "./CsvTable"
 import { BlockEditor } from "./BlockEditor"
@@ -26,23 +29,7 @@ import { apiClient } from "../../services/api"
 import { useAuth } from "../../contexts/AuthContext"
 
 /* ─── Version helpers ─── */
-const VERSIONS_KEY = (wikiId, fileId) => `jd:versions:${wikiId}:${fileId}`
-const MAX_VERSIONS = 5
 const EDITS_PER_CHECKPOINT = 100
-
-function loadVersions(wikiId, fileId) {
-  try {
-    return JSON.parse(localStorage.getItem(VERSIONS_KEY(wikiId, fileId)) || "[]")
-  } catch { return [] }
-}
-
-function saveVersion(wikiId, fileId, content) {
-  const versions = loadVersions(wikiId, fileId)
-  versions.push({ content, timestamp: Date.now() })
-  while (versions.length > MAX_VERSIONS) versions.shift()
-  localStorage.setItem(VERSIONS_KEY(wikiId, fileId), JSON.stringify(versions))
-  return versions
-}
 
 function computeLineDiff(oldText = "", newText = "") {
   const oldLines = oldText.split("\n")
@@ -90,6 +77,43 @@ function computeLineDiff(oldText = "", newText = "") {
   return diff
 }
 
+function computeSideBySideDiff(oldText = "", newText = "") {
+  const unified = computeLineDiff(oldText, newText)
+  const rows = []
+  let i = 0
+  while (i < unified.length) {
+    if (unified[i].type === "equal") {
+      rows.push({ left: unified[i].text, right: unified[i].text, type: "equal" })
+      i++
+    } else {
+      const deletes = []
+      const adds = []
+      while (i < unified.length && (unified[i].type === "delete" || unified[i].type === "add")) {
+        if (unified[i].type === "delete") deletes.push(unified[i].text)
+        else adds.push(unified[i].text)
+        i++
+      }
+      const maxLen = Math.max(deletes.length, adds.length)
+      for (let j = 0; j < maxLen; j++) {
+        rows.push({
+          left: j < deletes.length ? deletes[j] : null,
+          right: j < adds.length ? adds[j] : null,
+          type: "changed",
+        })
+      }
+    }
+  }
+  return rows
+}
+
+function relativeTime(isoString) {
+  const delta = (Date.now() - new Date(isoString).getTime()) / 1000
+  if (delta < 60) return "Just now"
+  if (delta < 3600) return `${Math.floor(delta / 60)}m ago`
+  if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`
+  return `${Math.floor(delta / 86400)}d ago`
+}
+
 export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const { file, updateFile, saveContent } = useFile(wikiId, fileId)
   const { idToken } = useAuth()
@@ -101,6 +125,8 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   // Debounced save-status label — only appears after 1.5 s of inactivity
   // so it doesn't flash on every keystroke.
   const [saveStatus, setSaveStatus] = useState(null) // null | 'unsaved' | 'saving' | 'saved'
+  const [statusMessage, setStatusMessage] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
   const statusTimerRef = useRef(null)
   const [exportAnchor, setExportAnchor] = useState(null)
 
@@ -108,22 +134,28 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState("")
 
+  const getDraftKey = (wikiId, fileId) => `jd:draft:${wikiId}:${fileId}`
+
   // Version checkpoint state
   const editCountRef = useRef(0)
   const [versions, setVersions] = useState([])
-  const [serverVersions, setServerVersions] = useState([])
-  const [versionsAnchor, setVersionsAnchor] = useState(null)
+  const [versionsOpen, setVersionsOpen] = useState(false)
+  const [editorKey, setEditorKey] = useState(0)
+
+  // Draft localStorage state
+  const [hasDraft, setHasDraft] = useState(false)
+  const [draftContent, setDraftContent] = useState("")
 
   // Version diff UI state
   const [diffDialogOpen, setDiffDialogOpen] = useState(false)
   const [diffVersion, setDiffVersion] = useState(null)
-  const [diffLines, setDiffLines] = useState([])
+  const [diffRows, setDiffRows] = useState([])
 
   const loadServerVersions = useCallback(async () => {
     if (!wikiId || !fileId) return
     try {
       const data = await apiClient.getVersions(wikiId, fileId)
-      setServerVersions(data.versions || [])
+      setVersions(data.versions || [])
     } catch (err) {
       console.warn("Failed to load server versions", err)
     }
@@ -133,19 +165,47 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   // Without this guard, a late-arriving refetch from the previous file's
   // updateFile call would overwrite the editor with stale content.
   useEffect(() => {
-    if (file?.fileId === fileId && file?.content !== undefined) {
+    if (file?.fileId === fileId && file?.content !== undefined && wikiId && fileId) {
       setContent(file.content)
       contentRef.current = file.content  // keep ref in sync so unmount-save is accurate
       setHasChanges(false)
       editCountRef.current = 0
+
+      try {
+        const draftKey = getDraftKey(wikiId, fileId)
+        const saved = localStorage.getItem(draftKey)
+        if (saved && saved !== file.content) {
+          setHasDraft(true)
+          setDraftContent(saved)
+          setContent(saved)
+          contentRef.current = saved
+          setHasChanges(true)
+          setSaveStatus("unsaved")
+          setStatusMessage("Unsaved draft restored from local storage.")
+          // keep local draft so user can continue typing or save
+          return
+        }
+
+        setHasDraft(false)
+        setDraftContent("")
+        localStorage.removeItem(draftKey)
+      } catch (err) {
+        console.warn("Failed to load local draft", err)
+      }
     }
-  }, [file])
+  }, [file, wikiId, fileId])
 
   useEffect(() => {
-    if (wikiId && fileId) {
-      setVersions(loadVersions(wikiId, fileId))
-      loadServerVersions()
+    if (!wikiId || !fileId) return
+
+    // Cleanup old localStorage version keys from previous local checkpoint implementation.
+    try {
+      localStorage.removeItem(`jd:versions:${wikiId}:${fileId}`)
+    } catch (err) {
+      console.warn("Failed to clean old version localStorage key", err)
     }
+
+    loadServerVersions()
   }, [wikiId, fileId, loadServerVersions])
 
   // Refs to avoid stale closures in auto-save timer
@@ -166,10 +226,10 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   useEffect(() => { saveContentRef.current = saveContent }, [saveContent])
 
   const createServerVersion = useCallback(
-    async (content) => {
+    async (content, label = "Checkpoint") => {
       if (!wikiId || !fileId) return
       try {
-        await apiClient.createVersion(wikiId, fileId, content)
+        await apiClient.createVersion(wikiId, fileId, content, label)
         await loadServerVersions()
       } catch (err) {
         console.warn("Failed to create server version", err)
@@ -179,87 +239,96 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   )
 
   const doSave = useCallback(async (text) => {
-    if (savingRef.current) return
+    if (savingRef.current) return false
     if (text === file?.content) {
       setHasChanges(false)
       setSaveStatus(null)
-      return
+      setStatusMessage("")
+      return false
     }
     try {
       savingRef.current = true
       setSaving(true)
-      // Cancel the stale-save warning timer before the request starts
-      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-      statusTimerRef.current = null
+      setIsSaving(true)
       setSaveStatus('saving')
+      setStatusMessage('Autosaving…')
+
       await updateFile({ content: text })
       setHasChanges(false)
-      // Cancel the stale-save warning timer and clear any error indicator
-      if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-      statusTimerRef.current = null
+
+      // clear local draft after successful save
+      try {
+        const draftKey = getDraftKey(wikiId, fileId)
+        localStorage.removeItem(draftKey)
+      } catch (err) {
+        console.warn("Failed to clear local draft", err)
+      }
+
+      setHasDraft(false)
+      setDraftContent("")
       setSaveStatus('saved')
-      // Hide the 'Saved ✓' label after 2 s
-      statusTimerRef.current = setTimeout(() => setSaveStatus(null), 2000)
+      setStatusMessage('Saved ✓')
+      statusTimerRef.current = setTimeout(() => {
+        setSaveStatus(null)
+        setStatusMessage("")
+      }, 1200)
+      return true
     } catch (err) {
       console.error("Auto-save failed:", err)
       setSaveStatus('unsaved')
+      setStatusMessage('Auto-save failed')
+      return false
     } finally {
       savingRef.current = false
       setSaving(false)
+      setIsSaving(false)
     }
-  }, [file?.content, updateFile])
+  }, [file?.content, updateFile, wikiId, fileId])
 
   const handleContentChange = useCallback((newContent) => {
     setContent(newContent)
     contentRef.current = newContent
     setHasChanges(true)
 
-    // Clear any previous status
+    // Show that auto-save is active
     if (statusTimerRef.current) clearTimeout(statusTimerRef.current)
-    setSaveStatus(null)
-
-    // Show "Unsaved changes" only if content hasn't been saved within 30 s
-    // (indicates a system failure — normal saves complete in < 3 s)
-    statusTimerRef.current = setTimeout(() => setSaveStatus('unsaved'), 30000)
-
-    // Track edits for versioning
-    editCountRef.current += 1
-    if (editCountRef.current >= EDITS_PER_CHECKPOINT) {
-      editCountRef.current = 0
-      const v = saveVersion(wikiId, fileId, newContent)
-      setVersions(v)
-      // Mirror checkpoint to server (best-effort)
-      createServerVersion(newContent)
-    }
+    setSaveStatus('saving')
+    setStatusMessage('Autosaving…')
 
     // Auto-save after 2.5 seconds of inactivity (short enough to not lose
     // work on a refresh, long enough to not flood the API mid-sentence)
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
+
+    try {
+      const draftKey = getDraftKey(wikiId, fileId)
+      localStorage.setItem(draftKey, newContent)
+      setHasDraft(true)
+      setDraftContent(newContent)
+    } catch (err) {
+      console.warn("Failed to save draft", err)
+    }
+
     saveTimeoutRef.current = setTimeout(() => {
       doSave(contentRef.current)
     }, 2500)
   }, [doSave, wikiId, fileId])
 
-  const handleManualSave = useCallback(() => {
+  const handleManualSave = useCallback(async () => {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current)
     }
-    doSave(contentRef.current)
-  }, [doSave])
 
-  const handleSavePoint = useCallback(async () => {
-    const current = contentRef.current
-    if (!wikiId || !fileId || current === undefined) return
-
-    // Local snapshot
-    const v = saveVersion(wikiId, fileId, current)
-    setVersions(v)
-
-    // Server checkpoint (best-effort)
-    await createServerVersion(current)
-  }, [createServerVersion, fileId, saveVersion, wikiId])
+    const didSave = await doSave(contentRef.current)
+    if (didSave) {
+      try {
+        await createServerVersion(contentRef.current, "Manual save")
+      } catch (err) {
+        console.error("Failed to create manual restore point", err)
+      }
+    }
+  }, [doSave, createServerVersion])
 
   // Keyboard shortcut for save (Ctrl+S or Cmd+S)
   useEffect(() => {
@@ -288,16 +357,33 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     }
   }, [fileId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Reset editor state immediately when fileId changes so we never show
-  // the previous file's content while the new file is fetching.
+  // When the fileId changes, reset editor momentarily and then load draft if available.
   useEffect(() => {
+    if (!wikiId || !fileId) return
+
+    // Reset before new file content arrives
     setContent("")
     contentRef.current = ""
     setHasChanges(false)
     setSaveStatus(null)
-    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    setStatusMessage("")
+
+    try {
+      const draftKey = getDraftKey(wikiId, fileId)
+      const saved = localStorage.getItem(draftKey)
+      if (saved) {
+        setContent(saved)
+        contentRef.current = saved
+        setHasChanges(true)
+        setSaveStatus('saving')
+        setStatusMessage('Recovered unsaved draft')
+      }
+    } catch (err) {
+      console.warn('Failed to load draft on file change', err)
+    }
+
     setEditingName(false)
-  }, [fileId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [wikiId, fileId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Warn before hard-refresh / tab close if there are unsaved changes
   useEffect(() => {
@@ -330,8 +416,40 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   }
 
   /* ─── Version restore ─── */
+  const handleRestoreDraft = useCallback(() => {
+    if (!wikiId || !fileId) return
+    let draftToRestore = draftContent
+
+    try {
+      const draftKey = getDraftKey(wikiId, fileId)
+      const stored = localStorage.getItem(draftKey)
+      if (stored) draftToRestore = stored
+    } catch (err) {
+      console.warn("Failed to read draft key", err)
+    }
+
+    if (!draftToRestore) return
+
+    setContent(draftToRestore)
+    contentRef.current = draftToRestore
+    setEditorKey((k) => k + 1)
+    setHasChanges(true)
+    setHasDraft(false)
+    setDraftContent("")
+
+    try {
+      const draftKey = getDraftKey(wikiId, fileId)
+      localStorage.removeItem(draftKey)
+    } catch (err) {
+      console.warn("Failed to remove draft key", err)
+    }
+
+    if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
+    doSave(draftToRestore)
+  }, [draftContent, doSave, wikiId, fileId])
+
   const handleRestoreVersion = async (version) => {
-    setVersionsAnchor(null)
+    setVersionsOpen(false)
 
     let contentToRestore = version.content
     if (!contentToRestore && version.versionId) {
@@ -348,15 +466,16 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     setContent(contentToRestore)
     contentRef.current = contentToRestore
+    setEditorKey((k) => k + 1) // force BlockEditor to re-mount with restored content
     setHasChanges(true)
     // Trigger a save immediately so it persists
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
-    doSave(contentToRestore)
+    await doSave(contentToRestore)
+    // Do not automatically create an extra restore point when restoring a version.
+    // Use the Save button to explicitly create restore points.
   }
 
   const handleCompareVersion = async (version) => {
-    setVersionsAnchor(null)
-
     let versionContent = version.content
     if (!versionContent && version.versionId) {
       try {
@@ -369,16 +488,16 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     }
 
     const current = contentRef.current ?? file?.content ?? ""
-    const diff = computeLineDiff(versionContent || "", current)
+    const rows = computeSideBySideDiff(versionContent || "", current)
     setDiffVersion({ ...version, content: versionContent })
-    setDiffLines(diff)
+    setDiffRows(rows)
     setDiffDialogOpen(true)
   }
 
   const handleCloseDiffDialog = () => {
     setDiffDialogOpen(false)
     setDiffVersion(null)
-    setDiffLines([])
+    setDiffRows([])
   }
 
   /* ─── Export/Download helpers ─── */
@@ -575,141 +694,131 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             {file.name}
           </Typography>
         )}
-        {saveStatus && (
-          <Typography
-            variant="caption"
-            color={saveStatus === 'saved' ? 'success.main' : saveStatus === 'saving' ? 'text.secondary' : 'warning.main'}
-          >
-            {saveStatus === 'saved' ? 'Saved ✓' : saveStatus === 'saving' ? 'Saving…' : 'Unsaved changes'}
-          </Typography>
-        )}
-        <Tooltip title="Save point">
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 220 }}>
+          {isSaving && (
+            <Box className="loader" sx={{ opacity: 0.85 }} />
+          )}
+        </Box>
+        <Tooltip title={versions.length === 0 ? "No versions yet — save to create one" : `${versions.length} saved version${versions.length !== 1 ? "s" : ""}`}>
           <span>
             <IconButton
-              onClick={handleSavePoint}
-              disabled={!content || saving}
-              color="default"
-            >
-              <Bookmark />
-            </IconButton>
-          </span>
-        </Tooltip>
-        <Tooltip title={`${versions.length + serverVersions.length} version${versions.length + serverVersions.length !== 1 ? "s" : ""}`}>
-          <span>
-            <IconButton
-              onClick={(e) => setVersionsAnchor(e.currentTarget)}
-              disabled={versions.length + serverVersions.length === 0}
+              onClick={() => setVersionsOpen(true)}
               color="default"
             >
               <History />
             </IconButton>
           </span>
         </Tooltip>
-        <Menu
-          anchorEl={versionsAnchor}
-          open={Boolean(versionsAnchor)}
-          onClose={() => setVersionsAnchor(null)}
+
+        {/* Version History Drawer */}
+        <Drawer
+          anchor="right"
+          open={versionsOpen}
+          onClose={() => setVersionsOpen(false)}
+          PaperProps={{ sx: { width: 300, mt: 8, height: 'calc(100vh - 8rem)' } }}
+          ModalProps={{ keepMounted: true }}
         >
-          {versions.length === 0 && serverVersions.length === 0 && (
-            <MenuItem disabled>No versions yet</MenuItem>
-          )}
-
-          {versions.length > 0 && (
-            <>
-              <MenuItem disabled>Local versions</MenuItem>
-              {versions.map((v, i) => (
-                <MenuItem
-                  key={`local-${i}`}
-                  onClick={() => handleRestoreVersion(v)}
-                  sx={{ justifyContent: "space-between" }}
-                >
-                  <ListItemText
-                    primary={`Version ${i + 1}`}
-                    secondary={new Date(v.timestamp).toLocaleString()}
-                  />
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleCompareVersion(v)
-                    }}
-                  >
-                    <CompareArrows fontSize="small" />
-                  </IconButton>
-                </MenuItem>
-              ))}
-            </>
-          )}
-
-          {serverVersions.length > 0 && (
-            <>
-              <Divider />
-              <MenuItem disabled>Server versions</MenuItem>
-              {serverVersions.map((v) => (
-                <MenuItem
-                  key={`server-${v.versionId}`}
-                  onClick={() => handleRestoreVersion(v)}
-                  sx={{ justifyContent: "space-between" }}
-                >
-                  <ListItemText
-                    primary={new Date(v.createdAt).toLocaleString()}
-                    secondary={`Version ${v.versionId}`}
-                  />
-                  <IconButton
-                    size="small"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      handleCompareVersion(v)
-                    }}
-                  >
-                    <CompareArrows fontSize="small" />
-                  </IconButton>
-                </MenuItem>
-              ))}
-            </>
-          )}
-        </Menu>
-        <Dialog open={diffDialogOpen} onClose={handleCloseDiffDialog} maxWidth="md" fullWidth>
-          <DialogTitle>Compare to version</DialogTitle>
-          <DialogContent dividers>
-            <Typography variant="body2" sx={{ mb: 1 }}>
-              Comparing current document with {diffVersion ? `version ${diffVersion.versionId ?? ''} (${diffVersion.createdAt ? new Date(diffVersion.createdAt).toLocaleString() : 'unknown'})` : 'selected version'}.
+          <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="h6">Version History</Typography>
+            <IconButton size="small" onClick={() => setVersionsOpen(false)}><Close /></IconButton>
+          </Box>
+          <Divider />
+          <Box sx={{ overflow: "auto", flexGrow: 1 }}>
+            {versions.length === 0 ? (
+              <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                No versions yet. Versions are created each time you save (Ctrl+S).
+              </Typography>
+            ) : (
+              versions.map((v) => (
+                <Box key={v.versionId} sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider" }}>
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 0.5 }}>
+                    <Chip
+                      label={v.label || "Checkpoint"}
+                      size="small"
+                      color={v.label === "Manual save" ? "primary" : "default"}
+                      variant="outlined"
+                    />
+                  </Box>
+                  <Tooltip title={new Date(v.createdAt).toLocaleString()} placement="left">
+                    <Typography variant="body2" color="text.secondary" sx={{ cursor: "default" }}>
+                      {relativeTime(v.createdAt)}
+                    </Typography>
+                  </Tooltip>
+                  <Stack direction="row" spacing={1} sx={{ mt: 1 }}>
+                    <Button size="small" variant="outlined" onClick={() => handleCompareVersion(v)}>
+                      View diff
+                    </Button>
+                    <Button size="small" variant="contained" onClick={() => handleRestoreVersion(v)}>
+                      Restore
+                    </Button>
+                  </Stack>
+                </Box>
+              ))
+            )}
+          </Box>
+          <Divider />
+          <Box sx={{ p: 1.5 }}>
+            <Typography variant="caption" color="text.secondary">
+              Ctrl+S creates a new recovery point on every save.
             </Typography>
-            <Box
-              component="pre"
-              sx={{
-                fontFamily: "monospace",
-                whiteSpace: "pre-wrap",
-                wordBreak: "break-word",
-                maxHeight: 360,
-                overflow: "auto",
-                bgcolor: "background.paper",
-                p: 1,
-                borderRadius: 1,
-              }}
+          </Box>
+        </Drawer>
+
+        {/* Side-by-side diff dialog */}
+        <Dialog open={diffDialogOpen} onClose={handleCloseDiffDialog} maxWidth="lg" fullWidth>
+          <DialogTitle sx={{ display: "flex", justifyContent: "space-between", alignItems: "center", pb: 1 }}>
+            <Box>
+              <Typography variant="h6">
+                {diffVersion?.label || "Version"} — {diffVersion ? relativeTime(diffVersion.createdAt) : ""}
+              </Typography>
+              <Typography variant="caption" color="text.secondary">
+                {diffVersion ? new Date(diffVersion.createdAt).toLocaleString() : ""}
+              </Typography>
+            </Box>
+            <Button
+              variant="contained"
+              size="small"
+              onClick={() => { handleRestoreVersion(diffVersion); handleCloseDiffDialog() }}
             >
-              {diffLines.map((line, idx) => (
-                <Box
-                  key={idx}
-                  component="div"
-                  sx={{
-                    bgcolor:
-                      line.type === "add"
-                        ? "success.light"
-                        : line.type === "delete"
-                          ? "error.light"
-                          : "transparent",
-                    color:
-                      line.type === "add"
-                        ? "success.dark"
-                        : line.type === "delete"
-                          ? "error.dark"
-                          : "text.primary",
+              Restore this version
+            </Button>
+          </DialogTitle>
+          <DialogContent dividers sx={{ p: 0 }}>
+            {/* Column headers */}
+            <Box sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", borderBottom: "1px solid", borderColor: "divider" }}>
+              <Box sx={{ p: 1.5, borderRight: "1px solid", borderColor: "divider", bgcolor: "action.hover" }}>
+                <Typography variant="caption" fontWeight={600} color="error.main">
+                  {diffVersion ? relativeTime(diffVersion.createdAt) : "Older version"}
+                </Typography>
+              </Box>
+              <Box sx={{ p: 1.5, bgcolor: "action.hover" }}>
+                <Typography variant="caption" fontWeight={600} color="success.main">Current</Typography>
+              </Box>
+            </Box>
+            {/* Diff rows */}
+            <Box component="div" sx={{ fontFamily: "monospace", fontSize: "0.8rem", maxHeight: 500, overflow: "auto" }}>
+              {diffRows.map((row, idx) => (
+                <Box key={idx} sx={{ display: "grid", gridTemplateColumns: "1fr 1fr", minHeight: "1.4em" }}>
+                  <Box sx={{
+                    px: 1.5, py: 0.15,
+                    borderRight: "1px solid",
+                    borderColor: "divider",
+                    bgcolor: row.type === "changed" && row.left !== null ? "error.light" : "transparent",
+                    color: row.type === "changed" && row.left !== null ? "error.dark" : "text.primary",
                     whiteSpace: "pre-wrap",
-                  }}
-                >
-                  {line.type === "add" ? "+" : line.type === "delete" ? "-" : " "}
-                  {line.text}
+                    wordBreak: "break-all",
+                  }}>
+                    {row.left !== null ? `${row.type === "changed" ? "−" : " "} ${row.left}` : ""}
+                  </Box>
+                  <Box sx={{
+                    px: 1.5, py: 0.15,
+                    bgcolor: row.type === "changed" && row.right !== null ? "success.light" : "transparent",
+                    color: row.type === "changed" && row.right !== null ? "success.dark" : "text.primary",
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}>
+                    {row.right !== null ? `${row.type === "changed" ? "+" : " "} ${row.right}` : ""}
+                  </Box>
                 </Box>
               ))}
             </Box>
@@ -718,11 +827,12 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             <Button onClick={handleCloseDiffDialog}>Close</Button>
           </DialogActions>
         </Dialog>
+
         <IconButton
           onClick={handleManualSave}
           disabled={!hasChanges || saving}
           color="primary"
-          title="Save (Ctrl+S)"
+          title="Hard save (create restore point)"
         >
           <Save />
         </IconButton>
@@ -760,7 +870,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             <div className="markdown-preview">{renderPreview()}</div>
           </Paper>
         ) : (
-          <BlockEditor initialContent={file.content || ""} onChange={handleContentChange} wikiId={wikiId} onFileSelect={onFileSelect} />
+          <BlockEditor key={`${fileId}-${editorKey}`} initialContent={content || ""} onChange={handleContentChange} wikiId={wikiId} onFileSelect={onFileSelect} />
         )}
       </Box>
     </Box>

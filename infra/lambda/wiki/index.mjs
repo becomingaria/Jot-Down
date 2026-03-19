@@ -460,16 +460,33 @@ export async function handler(event) {
                 })
 
             const targetUsername = event.pathParameters?.userId
+            if (!targetUsername)
+                return response(400, { error: "Missing userId" })
+
             const newPassword = body.temporaryPassword || "TempPass1!"
 
-            await cognito.send(
-                new AdminSetUserPasswordCommand({
-                    UserPoolId: USER_POOL_ID,
-                    Username: targetUsername,
-                    Password: newPassword,
-                    Permanent: false,
-                }),
-            )
+            try {
+                await cognito.send(
+                    new AdminSetUserPasswordCommand({
+                        UserPoolId: USER_POOL_ID,
+                        Username: targetUsername,
+                        Password: newPassword,
+                        Permanent: false,
+                    }),
+                )
+            } catch (err) {
+                // Cognito user not found or password policy failure
+                if (err.name === "UserNotFoundException") {
+                    return response(404, { error: "User not found" })
+                }
+                if (err.name === "InvalidPasswordException") {
+                    return response(400, { error: err.message })
+                }
+                console.error("AdminSetUserPassword failed:", err)
+                return response(500, {
+                    error: err.message || "Failed to set user password",
+                })
+            }
 
             return response(200, {
                 reset: true,

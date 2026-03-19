@@ -22,11 +22,15 @@ export function PageLinkPicker({ open, wikiId, onSelect, onClose }) {
   const pageFiles = useMemo(
     () =>
       files
-        .filter(
-          (f) =>
+        .filter((f) => {
+          if (!f) return false
+          const name = typeof f.name === "string" ? f.name : ""
+          const matchQuery = typeof query === "string" ? query : ""
+          return (
             (!f.fileType || f.fileType === "page") &&
-            f.name.toLowerCase().includes(query.toLowerCase()),
-        )
+            name.toLowerCase().includes(matchQuery.toLowerCase())
+          )
+        })
         .slice(0, 40),
     [files, query],
   )

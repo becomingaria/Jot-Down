@@ -703,6 +703,12 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
         resetSelectAllState()
       }}
       onPaste={(e) => {
+        const target = e.target
+        if (target instanceof HTMLElement && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) {
+          // Allow normal paste into form inputs (e.g. image URL field)
+          return
+        }
+
         e.preventDefault()
         const text = e.clipboardData.getData("text/plain")
         if (!text) return

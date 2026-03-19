@@ -224,6 +224,14 @@ export class ApiConstruct extends Construct {
             authMethodOptions,
         )
 
+        // /wikis/{wikiId}/users — search users for sharing autocomplete
+        const users = wiki.addResource("users")
+        users.addMethod(
+            "GET",
+            new apigateway.LambdaIntegration(wikiHandler),
+            authMethodOptions,
+        )
+
         // /wikis/{wikiId}/folders
         const folders = wiki.addResource("folders")
         folders.addMethod(
@@ -298,6 +306,27 @@ export class ApiConstruct extends Construct {
         )
         file.addMethod(
             "DELETE",
+            new apigateway.LambdaIntegration(fileHandler),
+            authMethodOptions,
+        )
+
+        // /wikis/{wikiId}/files/{fileId}/versions
+        const versions = file.addResource("versions")
+        versions.addMethod(
+            "GET",
+            new apigateway.LambdaIntegration(fileHandler),
+            authMethodOptions,
+        )
+        versions.addMethod(
+            "POST",
+            new apigateway.LambdaIntegration(fileHandler),
+            authMethodOptions,
+        )
+
+        // /wikis/{wikiId}/files/{fileId}/versions/{versionId}
+        const version = versions.addResource("{versionId}")
+        version.addMethod(
+            "GET",
             new apigateway.LambdaIntegration(fileHandler),
             authMethodOptions,
         )

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { useWikis } from "../../hooks/useWiki"
 import { apiClient } from "../../services/api"
@@ -67,6 +67,8 @@ export function WikiList() {
   const [emailInputValue, setEmailInputValue] = useState("")
   const [newShareAccess, setNewShareAccess] = useState("view")
 
+  const shareOpenerRef = useRef(null)
+
   // Rename state
   const [renameDialogOpen, setRenameDialogOpen] = useState(false)
   const [renameTarget, setRenameTarget] = useState(null) // { wikiId, name }
@@ -118,7 +120,8 @@ export function WikiList() {
     return [...parts, fixedLast].join("/")
   }
 
-  const openShareDialog = async (wiki) => {
+  const openShareDialog = async (wiki, openerEl) => {
+    shareOpenerRef.current = openerEl || null
     setShareTarget(wiki)
     setShareDialogOpen(true)
     setShareError(null)
@@ -145,6 +148,11 @@ export function WikiList() {
     setShares([])
     setNewShareEmail("")
     setNewShareAccess("view")
+
+    // Return focus to the opener to avoid aria-hidden focus warnings
+    if (shareOpenerRef.current instanceof HTMLElement) {
+      shareOpenerRef.current.focus()
+    }
   }
 
   const handleAddShare = async () => {
@@ -393,7 +401,7 @@ export function WikiList() {
                         color="primary"
                         onClick={(e) => {
                           e.stopPropagation()
-                          openShareDialog(wiki)
+                          openShareDialog(wiki, e.currentTarget)
                         }}
                         title="Manage shares"
                       >
