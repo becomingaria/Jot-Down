@@ -53,9 +53,8 @@ export function AdminPanel() {
 
   // Reset password dialog
   const [resetTarget, setResetTarget] = useState(null)
-  const [resetPassword, setResetPassword] = useState("")
   const [resetting, setResetting] = useState(false)
-  const [lastTempPassword, setLastTempPassword] = useState(null)
+  const [resetResult, setResetResult] = useState(null) // { email, password }
 
   const fetchUsers = useCallback(async () => {
     setLoading(true)
@@ -91,10 +90,7 @@ export function AdminPanel() {
         newPassword || undefined,
         newGroup || undefined,
       )
-      setSuccess(
-        `User ${result.email} created. Temp password: ${result.temporaryPassword}`,
-      )
-      setLastTempPassword(result.temporaryPassword)
+      setResetResult({ email: result.email, password: result.temporaryPassword })
       setNewEmail("")
       setNewPassword("")
       setNewGroup("")
@@ -130,17 +126,9 @@ export function AdminPanel() {
     setResetting(true)
     setError(null)
     try {
-      const result = await apiClient.resetPassword(
-        resetTarget.username,
-        resetPassword || undefined,
-      )
-      setSuccess(
-        `Password reset for ${resetTarget.email || resetTarget.username}. Temp password: ${result.temporaryPassword}`,
-      )
-      setLastTempPassword(result.temporaryPassword)
+      const result = await apiClient.resetPassword(resetTarget.username)
       setResetTarget(null)
-      setResetPassword("")
-      clearMessages()
+      setResetResult({ email: resetTarget.email || resetTarget.username, password: result.temporaryPassword })
     } catch (err) {
       setError(err.message || "Failed to reset password")
     } finally {
@@ -177,23 +165,7 @@ export function AdminPanel() {
         </Alert>
       )}
       {success && (
-        <Alert
-          severity="success"
-          sx={{ mb: 1 }}
-          onClose={() => setSuccess(null)}
-          action={
-            lastTempPassword && (
-              <IconButton
-                size="small"
-                color="inherit"
-                onClick={() => copyToClipboard(lastTempPassword)}
-                title="Copy temp password"
-              >
-                <ContentCopy fontSize="small" />
-              </IconButton>
-            )
-          }
-        >
+        <Alert severity="success" sx={{ mb: 1 }} onClose={() => setSuccess(null)}>
           {success}
         </Alert>
       )}
@@ -371,26 +343,15 @@ export function AdminPanel() {
         </DialogActions>
       </Dialog>
 
-      {/* Reset Password Dialog */}
+      {/* Reset Password Confirm Dialog */}
       <Dialog open={!!resetTarget} onClose={() => setResetTarget(null)}>
         <DialogTitle>Reset Password</DialogTitle>
         <DialogContent>
-          <DialogContentText sx={{ mb: 2 }}>
-            Set a new temporary password for{" "}
-            <strong>
-              {resetTarget?.email || resetTarget?.username}
-            </strong>
-            . They will be required to change it on next sign-in.
+          <DialogContentText>
+            Generate a new temporary password for{" "}
+            <strong>{resetTarget?.email || resetTarget?.username}</strong>?
+            They will be required to change it on next sign-in.
           </DialogContentText>
-          <TextField
-            label="New Temporary Password"
-            value={resetPassword}
-            onChange={(e) => setResetPassword(e.target.value)}
-            fullWidth
-            size="small"
-            placeholder="TempPass1!"
-            autoComplete="off"
-          />
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setResetTarget(null)}>Cancel</Button>
@@ -398,16 +359,47 @@ export function AdminPanel() {
             onClick={handleResetPassword}
             variant="contained"
             disabled={resetting}
-            startIcon={
-              resetting ? (
-                <CircularProgress size={16} />
-              ) : (
-                <LockReset />
-              )
-            }
+            startIcon={resetting ? <CircularProgress size={16} /> : <LockReset />}
           >
             Reset
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Password Result Dialog */}
+      <Dialog open={!!resetResult} onClose={() => setResetResult(null)}>
+        <DialogTitle>Temporary Password</DialogTitle>
+        <DialogContent>
+          <DialogContentText sx={{ mb: 2 }}>
+            Password reset for <strong>{resetResult?.email}</strong>. Share this with them — they must change it on first sign-in.
+          </DialogContentText>
+          <Box
+            sx={{
+              display: "flex",
+              alignItems: "center",
+              gap: 1,
+              p: 1.5,
+              bgcolor: "action.hover",
+              borderRadius: 1,
+              fontFamily: "monospace",
+              fontSize: "1.1rem",
+              letterSpacing: 1,
+            }}
+          >
+            <Typography sx={{ flex: 1, fontFamily: "monospace", fontSize: "1.1rem", letterSpacing: 1 }}>
+              {resetResult?.password}
+            </Typography>
+            <IconButton
+              size="small"
+              onClick={() => copyToClipboard(resetResult?.password)}
+              title="Copy password"
+            >
+              <ContentCopy fontSize="small" />
+            </IconButton>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setResetResult(null)} variant="contained">Done</Button>
         </DialogActions>
       </Dialog>
     </Box>
