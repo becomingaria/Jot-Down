@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useAuth } from "../../contexts/AuthContext"
+import { authService } from "../../services/auth"
 import { Box, Card, CardContent, TextField, Button, Typography, Alert } from "@mui/material"
 
 export function LoginPage() {
@@ -8,6 +9,10 @@ export function LoginPage() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
+  // New-password-required challenge state
+  const [needsNewPassword, setNeedsNewPassword] = useState(false)
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
   const { signIn } = useAuth()
   const navigate = useNavigate()
 
@@ -20,7 +25,31 @@ export function LoginPage() {
       await signIn(email, password)
       navigate("/wikis")
     } catch (err) {
-      setError(err.message || "Failed to sign in")
+      if (err.code === "NewPasswordRequired") {
+        setNeedsNewPassword(true)
+      } else {
+        setError(err.message || "Failed to sign in")
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSetNewPassword = async (e) => {
+    e.preventDefault()
+    if (newPassword !== confirmPassword) {
+      setError("Passwords do not match")
+      return
+    }
+    setError("")
+    setLoading(true)
+    try {
+      await authService.completeForcedPasswordChange(newPassword)
+      // After challenge completes, sign in normally to hydrate auth context
+      await signIn(email, newPassword)
+      navigate("/wikis")
+    } catch (err) {
+      setError(err.message || "Failed to set new password")
     } finally {
       setLoading(false)
     }
@@ -41,47 +70,88 @@ export function LoginPage() {
           <Typography variant="h4" component="h1" gutterBottom textAlign="center">
             Jot-Down
           </Typography>
-          <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
-            Sign in to your wiki
-          </Typography>
 
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
+          {!needsNewPassword ? (
+            <>
+              <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
+                Sign in to your wiki
+              </Typography>
+
+              {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+              <form onSubmit={handleSubmit}>
+                <TextField
+                  label="Email"
+                  type="email"
+                  fullWidth
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  margin="normal"
+                  required
+                  autoFocus
+                />
+                <TextField
+                  label="Password"
+                  type="password"
+                  fullWidth
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  margin="normal"
+                  required
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  disabled={loading}
+                  sx={{ mt: 3 }}
+                >
+                  {loading ? "Signing in..." : "Sign In"}
+                </Button>
+              </form>
+            </>
+          ) : (
+            <>
+              <Typography variant="body2" color="text.secondary" textAlign="center" mb={3}>
+                Your password has been reset. Please set a new permanent password to continue.
+              </Typography>
+
+              {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+              <form onSubmit={handleSetNewPassword}>
+                <TextField
+                  label="New Password"
+                  type="password"
+                  fullWidth
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  margin="normal"
+                  required
+                  autoFocus
+                />
+                <TextField
+                  label="Confirm New Password"
+                  type="password"
+                  fullWidth
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  margin="normal"
+                  required
+                />
+                <Button
+                  type="submit"
+                  variant="contained"
+                  fullWidth
+                  size="large"
+                  disabled={loading}
+                  sx={{ mt: 3 }}
+                >
+                  {loading ? "Setting password..." : "Set New Password"}
+                </Button>
+              </form>
+            </>
           )}
-
-          <form onSubmit={handleSubmit}>
-            <TextField
-              label="Email"
-              type="email"
-              fullWidth
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              margin="normal"
-              required
-              autoFocus
-            />
-            <TextField
-              label="Password"
-              type="password"
-              fullWidth
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              margin="normal"
-              required
-            />
-            <Button
-              type="submit"
-              variant="contained"
-              fullWidth
-              size="large"
-              disabled={loading}
-              sx={{ mt: 3 }}
-            >
-              {loading ? "Signing in..." : "Sign In"}
-            </Button>
-          </form>
         </CardContent>
       </Card>
     </Box>

@@ -14,6 +14,10 @@ const poolData = {
 
 const userPool = new CognitoUserPool(poolData)
 
+// Holds the cognitoUser mid-challenge so completeForcedPasswordChange can finish it
+let pendingCognitoUser = null
+let pendingUserAttributes = null
+
 export const authService = {
     // Sign in
     signIn(email, password) {
@@ -61,9 +65,51 @@ export const authService = {
                     reject(err)
                 },
                 newPasswordRequired: (userAttributes) => {
+                    // Strip read-only attributes Cognito won't accept back
+                    delete userAttributes.email_verified
+                    delete userAttributes.phone_number_verified
+                    pendingCognitoUser = cognitoUser
+                    pendingUserAttributes = userAttributes
                     reject({ code: "NewPasswordRequired", userAttributes })
                 },
             })
+        })
+    },
+
+    // Complete the forced-password-change challenge after admin reset
+    completeForcedPasswordChange(newPassword) {
+        return new Promise((resolve, reject) => {
+            if (!pendingCognitoUser) {
+                reject(new Error("No pending password challenge"))
+                return
+            }
+            pendingCognitoUser.completeNewPasswordChallenge(
+                newPassword,
+                pendingUserAttributes || {},
+                {
+                    onSuccess: (result) => {
+                        pendingCognitoUser = null
+                        pendingUserAttributes = null
+                        resolve({
+                            idToken: result.getIdToken().getJwtToken(),
+                            accessToken: result.getAccessToken().getJwtToken(),
+                            refreshToken: result.getRefreshToken().getToken(),
+                            user: {
+                                email: result.getIdToken().payload.email,
+                                userId: result.getIdToken().payload.sub,
+                                groups: (() => {
+                                    const raw = result.getIdToken().payload["cognito:groups"]
+                                    const list = typeof raw === "string" ? raw.split(",") : raw || []
+                                    return Array.isArray(list) ? list.map((g) => (typeof g === "string" ? g.toLowerCase() : g)) : []
+                                })(),
+                            },
+                        })
+                    },
+                    onFailure: (err) => {
+                        reject(err)
+                    },
+                },
+            )
         })
     },
 
