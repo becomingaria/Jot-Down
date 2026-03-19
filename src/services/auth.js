@@ -21,7 +21,9 @@ let pendingUserAttributes = null
 export const authService = {
     // Sign in
     signIn(email, password) {
-        const normalizedEmail = String(email || "").trim().toLowerCase()
+        const normalizedEmail = String(email || "")
+            .trim()
+            .toLowerCase()
         return new Promise((resolve, reject) => {
             const authenticationDetails = new AuthenticationDetails({
                 Username: normalizedEmail,
@@ -68,11 +70,10 @@ export const authService = {
                 },
                 newPasswordRequired: (userAttributes) => {
                     console.info("Cognito newPasswordRequired challenge")
-                    // Strip read-only attributes Cognito won't accept back
-                    delete userAttributes.email_verified
-                    delete userAttributes.phone_number_verified
+                    // On this path, we do not change email or other provided attributes.
+                    // Keep only fields needed for the challenge response.
                     pendingCognitoUser = cognitoUser
-                    pendingUserAttributes = userAttributes
+                    pendingUserAttributes = {}
                     reject({ code: "NewPasswordRequired", userAttributes })
                 },
             })
