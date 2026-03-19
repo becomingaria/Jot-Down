@@ -15,7 +15,40 @@ import {
     AdminAddUserToGroupCommand,
     ListUsersCommand,
 } from "@aws-sdk/client-cognito-identity-provider"
-import { randomUUID } from "crypto"
+import { randomUUID, randomBytes } from "crypto"
+
+// Generate a cryptographically random temporary password that always satisfies
+// Cognito's policy (upper, lower, digit, symbol, min length 8).
+function generateTempPassword() {
+    const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ"
+    const lower = "abcdefghjkmnpqrstuvwxyz"
+    const digits = "23456789"
+    const symbols = "!@#$%"
+    const all = upper + lower + digits + symbols
+    const buf = randomBytes(16)
+    // Guarantee at least one character from each required class
+    const chars = [
+        upper[buf[0] % upper.length],
+        upper[buf[1] % upper.length],
+        lower[buf[2] % lower.length],
+        lower[buf[3] % lower.length],
+        digits[buf[4] % digits.length],
+        digits[buf[5] % digits.length],
+        symbols[buf[6] % symbols.length],
+        all[buf[7] % all.length],
+        all[buf[8] % all.length],
+        all[buf[9] % all.length],
+        all[buf[10] % all.length],
+        all[buf[11] % all.length],
+    ]
+    // Fisher-Yates shuffle
+    const sb = randomBytes(chars.length)
+    for (let i = chars.length - 1; i > 0; i--) {
+        const j = sb[i] % (i + 1)
+        ;[chars[i], chars[j]] = [chars[j], chars[i]]
+    }
+    return chars.join("")
+}
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const cognito = new CognitoIdentityProviderClient({})
@@ -404,7 +437,7 @@ export async function handler(event) {
             if (!isAdmin(user))
                 return response(403, { error: "Only admins can create users" })
 
-            const tempPassword = body.temporaryPassword || "TempPass1!"
+            const tempPassword = body.temporaryPassword || generateTempPassword()
 
             await cognito.send(
                 new AdminCreateUserCommand({
@@ -463,7 +496,7 @@ export async function handler(event) {
             if (!targetUsername)
                 return response(400, { error: "Missing userId" })
 
-            const newPassword = body.temporaryPassword || "TempPass1!"
+            const newPassword = body.temporaryPassword || generateTempPassword()
 
             try {
                 await cognito.send(
