@@ -137,7 +137,6 @@ export function WikiView() {
         onOpen={() => setDrawerOpen(true)}
         disableBackdropTransition={!iOS}
         disableDiscovery={iOS}
-        ModalProps={{ keepMounted: true }}
         sx={{
           display: isMobile && !drawerOpen ? "none" : "block",
           width: isMobile ? 0 : DRAWER_WIDTH,

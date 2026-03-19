@@ -716,7 +716,6 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           open={versionsOpen}
           onClose={() => setVersionsOpen(false)}
           PaperProps={{ sx: { width: 300, mt: 8, height: 'calc(100vh - 8rem)' } }}
-          ModalProps={{ keepMounted: true }}
         >
           <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h6">Version History</Typography>
