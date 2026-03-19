@@ -1,5 +1,6 @@
 import { createContext, useState, useEffect, useContext } from "react"
 import { authService } from "../services/auth"
+import { apiClient } from "../services/api"
 
 const AuthContext = createContext(null)
 
@@ -15,6 +16,7 @@ export function AuthProvider({ children }) {
       .then((session) => {
         setUser(session.user)
         setIdToken(session.idToken)
+        apiClient.setIdToken(session.idToken)
         setLoading(false)
       })
       .catch(() => {
@@ -26,6 +28,7 @@ export function AuthProvider({ children }) {
     const session = await authService.signIn(email, password)
     setUser(session.user)
     setIdToken(session.idToken)
+    apiClient.setIdToken(session.idToken)
     return session
   }
 
@@ -33,6 +36,7 @@ export function AuthProvider({ children }) {
     authService.signOut()
     setUser(null)
     setIdToken(null)
+    apiClient.setIdToken(null)
   }
 
   const value = {

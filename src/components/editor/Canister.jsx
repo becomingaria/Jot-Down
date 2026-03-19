@@ -11,12 +11,19 @@ import {
   MenuItem,
   ListItemText,
   ListItemIcon,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Button,
 } from "@mui/material"
-import { Save, Visibility, Edit, History, Download } from "@mui/icons-material"
+import { Save, Visibility, Edit, History, Download, Bookmark, CompareArrows } from "@mui/icons-material"
 import { processMarkdown, extractCSVBlocks } from "../../utils/markdown"
 import { CsvTable } from "./CsvTable"
 import { BlockEditor } from "./BlockEditor"
 import { useFile } from "../../hooks/useFile"
+import { apiClient } from "../../services/api"
+import { useAuth } from "../../contexts/AuthContext"
 
 /* ─── Version helpers ─── */
 const VERSIONS_KEY = (wikiId, fileId) => `jd:versions:${wikiId}:${fileId}`
@@ -37,8 +44,55 @@ function saveVersion(wikiId, fileId, content) {
   return versions
 }
 
+function computeLineDiff(oldText = "", newText = "") {
+  const oldLines = oldText.split("\n")
+  const newLines = newText.split("\n")
+  const n = oldLines.length
+  const m = newLines.length
+  const dp = Array.from({ length: n + 1 }, () => Array(m + 1).fill(0))
+
+  for (let i = n - 1; i >= 0; --i) {
+    for (let j = m - 1; j >= 0; --j) {
+      if (oldLines[i] === newLines[j]) {
+        dp[i][j] = dp[i + 1][j + 1] + 1
+      } else {
+        dp[i][j] = Math.max(dp[i + 1][j], dp[i][j + 1])
+      }
+    }
+  }
+
+  const diff = []
+  let i = 0
+  let j = 0
+  while (i < n && j < m) {
+    if (oldLines[i] === newLines[j]) {
+      diff.push({ type: "equal", text: oldLines[i] })
+      i += 1
+      j += 1
+    } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+      diff.push({ type: "delete", text: oldLines[i] })
+      i += 1
+    } else {
+      diff.push({ type: "add", text: newLines[j] })
+      j += 1
+    }
+  }
+
+  while (i < n) {
+    diff.push({ type: "delete", text: oldLines[i] })
+    i += 1
+  }
+  while (j < m) {
+    diff.push({ type: "add", text: newLines[j] })
+    j += 1
+  }
+
+  return diff
+}
+
 export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const { file, updateFile, saveContent } = useFile(wikiId, fileId)
+  const { idToken } = useAuth()
   const [content, setContent] = useState("")
   const [isPreview, setIsPreview] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
@@ -57,7 +111,23 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   // Version checkpoint state
   const editCountRef = useRef(0)
   const [versions, setVersions] = useState([])
+  const [serverVersions, setServerVersions] = useState([])
   const [versionsAnchor, setVersionsAnchor] = useState(null)
+
+  // Version diff UI state
+  const [diffDialogOpen, setDiffDialogOpen] = useState(false)
+  const [diffVersion, setDiffVersion] = useState(null)
+  const [diffLines, setDiffLines] = useState([])
+
+  const loadServerVersions = useCallback(async () => {
+    if (!wikiId || !fileId) return
+    try {
+      const data = await apiClient.getVersions(wikiId, fileId)
+      setServerVersions(data.versions || [])
+    } catch (err) {
+      console.warn("Failed to load server versions", err)
+    }
+  }, [wikiId, fileId])
 
   // Only load content when the file that arrived belongs to the current fileId.
   // Without this guard, a late-arriving refetch from the previous file's
@@ -74,8 +144,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   useEffect(() => {
     if (wikiId && fileId) {
       setVersions(loadVersions(wikiId, fileId))
+      loadServerVersions()
     }
-  }, [wikiId, fileId])
+  }, [wikiId, fileId, loadServerVersions])
 
   // Refs to avoid stale closures in auto-save timer
   const contentRef = useRef(content)
@@ -84,10 +155,28 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const updateFileRef = useRef(updateFile)       // stable ref to latest updateFile fn
   const saveContentRef = useRef(saveContent)     // stable ref to fire-and-forget save
 
+  // Ensure API client has valid auth token for version endpoints
+  useEffect(() => {
+    if (idToken) apiClient.setIdToken(idToken)
+  }, [idToken])
+
   useEffect(() => { contentRef.current = content }, [content])
   useEffect(() => { fileContentRef.current = file?.content }, [file?.content])
   useEffect(() => { updateFileRef.current = updateFile }, [updateFile])
   useEffect(() => { saveContentRef.current = saveContent }, [saveContent])
+
+  const createServerVersion = useCallback(
+    async (content) => {
+      if (!wikiId || !fileId) return
+      try {
+        await apiClient.createVersion(wikiId, fileId, content)
+        await loadServerVersions()
+      } catch (err) {
+        console.warn("Failed to create server version", err)
+      }
+    },
+    [wikiId, fileId, loadServerVersions],
+  )
 
   const doSave = useCallback(async (text) => {
     if (savingRef.current) return
@@ -139,6 +228,8 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       editCountRef.current = 0
       const v = saveVersion(wikiId, fileId, newContent)
       setVersions(v)
+      // Mirror checkpoint to server (best-effort)
+      createServerVersion(newContent)
     }
 
     // Auto-save after 2.5 seconds of inactivity (short enough to not lose
@@ -157,6 +248,18 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     }
     doSave(contentRef.current)
   }, [doSave])
+
+  const handleSavePoint = useCallback(async () => {
+    const current = contentRef.current
+    if (!wikiId || !fileId || current === undefined) return
+
+    // Local snapshot
+    const v = saveVersion(wikiId, fileId, current)
+    setVersions(v)
+
+    // Server checkpoint (best-effort)
+    await createServerVersion(current)
+  }, [createServerVersion, fileId, saveVersion, wikiId])
 
   // Keyboard shortcut for save (Ctrl+S or Cmd+S)
   useEffect(() => {
@@ -227,14 +330,55 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   }
 
   /* ─── Version restore ─── */
-  const handleRestoreVersion = (version) => {
+  const handleRestoreVersion = async (version) => {
     setVersionsAnchor(null)
-    setContent(version.content)
-    contentRef.current = version.content
+
+    let contentToRestore = version.content
+    if (!contentToRestore && version.versionId) {
+      try {
+        const response = await apiClient.getVersion(wikiId, fileId, version.versionId)
+        contentToRestore = response.content
+      } catch (err) {
+        console.error("Failed to fetch version content", err)
+        return
+      }
+    }
+
+    if (!contentToRestore) return
+
+    setContent(contentToRestore)
+    contentRef.current = contentToRestore
     setHasChanges(true)
     // Trigger a save immediately so it persists
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
-    doSave(version.content)
+    doSave(contentToRestore)
+  }
+
+  const handleCompareVersion = async (version) => {
+    setVersionsAnchor(null)
+
+    let versionContent = version.content
+    if (!versionContent && version.versionId) {
+      try {
+        const response = await apiClient.getVersion(wikiId, fileId, version.versionId)
+        versionContent = response.content
+      } catch (err) {
+        console.error("Failed to fetch version content", err)
+        return
+      }
+    }
+
+    const current = contentRef.current ?? file?.content ?? ""
+    const diff = computeLineDiff(versionContent || "", current)
+    setDiffVersion({ ...version, content: versionContent })
+    setDiffLines(diff)
+    setDiffDialogOpen(true)
+  }
+
+  const handleCloseDiffDialog = () => {
+    setDiffDialogOpen(false)
+    setDiffVersion(null)
+    setDiffLines([])
   }
 
   /* ─── Export/Download helpers ─── */
@@ -390,7 +534,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   }
 
   return (
-    <Box sx={{ height: "100%", display: "flex", flexDirection: "column" }}>
+    <Box sx={{ height: "100%", minHeight: "200vh", display: "flex", flexDirection: "column" }}>
       {/* Toolbar */}
       <Paper
         sx={{
@@ -439,11 +583,22 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             {saveStatus === 'saved' ? 'Saved ✓' : saveStatus === 'saving' ? 'Saving…' : 'Unsaved changes'}
           </Typography>
         )}
-        <Tooltip title={`${versions.length} version${versions.length !== 1 ? "s" : ""}`}>
+        <Tooltip title="Save point">
+          <span>
+            <IconButton
+              onClick={handleSavePoint}
+              disabled={!content || saving}
+              color="default"
+            >
+              <Bookmark />
+            </IconButton>
+          </span>
+        </Tooltip>
+        <Tooltip title={`${versions.length + serverVersions.length} version${versions.length + serverVersions.length !== 1 ? "s" : ""}`}>
           <span>
             <IconButton
               onClick={(e) => setVersionsAnchor(e.currentTarget)}
-              disabled={versions.length === 0}
+              disabled={versions.length + serverVersions.length === 0}
               color="default"
             >
               <History />
@@ -455,19 +610,114 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           open={Boolean(versionsAnchor)}
           onClose={() => setVersionsAnchor(null)}
         >
-          {versions.length === 0 ? (
+          {versions.length === 0 && serverVersions.length === 0 && (
             <MenuItem disabled>No versions yet</MenuItem>
-          ) : (
-            versions.map((v, i) => (
-              <MenuItem key={i} onClick={() => handleRestoreVersion(v)}>
-                <ListItemText
-                  primary={`Version ${i + 1}`}
-                  secondary={new Date(v.timestamp).toLocaleString()}
-                />
-              </MenuItem>
-            ))
+          )}
+
+          {versions.length > 0 && (
+            <>
+              <MenuItem disabled>Local versions</MenuItem>
+              {versions.map((v, i) => (
+                <MenuItem
+                  key={`local-${i}`}
+                  onClick={() => handleRestoreVersion(v)}
+                  sx={{ justifyContent: "space-between" }}
+                >
+                  <ListItemText
+                    primary={`Version ${i + 1}`}
+                    secondary={new Date(v.timestamp).toLocaleString()}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleCompareVersion(v)
+                    }}
+                  >
+                    <CompareArrows fontSize="small" />
+                  </IconButton>
+                </MenuItem>
+              ))}
+            </>
+          )}
+
+          {serverVersions.length > 0 && (
+            <>
+              <Divider />
+              <MenuItem disabled>Server versions</MenuItem>
+              {serverVersions.map((v) => (
+                <MenuItem
+                  key={`server-${v.versionId}`}
+                  onClick={() => handleRestoreVersion(v)}
+                  sx={{ justifyContent: "space-between" }}
+                >
+                  <ListItemText
+                    primary={new Date(v.createdAt).toLocaleString()}
+                    secondary={`Version ${v.versionId}`}
+                  />
+                  <IconButton
+                    size="small"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleCompareVersion(v)
+                    }}
+                  >
+                    <CompareArrows fontSize="small" />
+                  </IconButton>
+                </MenuItem>
+              ))}
+            </>
           )}
         </Menu>
+        <Dialog open={diffDialogOpen} onClose={handleCloseDiffDialog} maxWidth="md" fullWidth>
+          <DialogTitle>Compare to version</DialogTitle>
+          <DialogContent dividers>
+            <Typography variant="body2" sx={{ mb: 1 }}>
+              Comparing current document with {diffVersion ? `version ${diffVersion.versionId ?? ''} (${diffVersion.createdAt ? new Date(diffVersion.createdAt).toLocaleString() : 'unknown'})` : 'selected version'}.
+            </Typography>
+            <Box
+              component="pre"
+              sx={{
+                fontFamily: "monospace",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-word",
+                maxHeight: 360,
+                overflow: "auto",
+                bgcolor: "background.paper",
+                p: 1,
+                borderRadius: 1,
+              }}
+            >
+              {diffLines.map((line, idx) => (
+                <Box
+                  key={idx}
+                  component="div"
+                  sx={{
+                    bgcolor:
+                      line.type === "add"
+                        ? "success.light"
+                        : line.type === "delete"
+                          ? "error.light"
+                          : "transparent",
+                    color:
+                      line.type === "add"
+                        ? "success.dark"
+                        : line.type === "delete"
+                          ? "error.dark"
+                          : "text.primary",
+                    whiteSpace: "pre-wrap",
+                  }}
+                >
+                  {line.type === "add" ? "+" : line.type === "delete" ? "-" : " "}
+                  {line.text}
+                </Box>
+              ))}
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDiffDialog}>Close</Button>
+          </DialogActions>
+        </Dialog>
         <IconButton
           onClick={handleManualSave}
           disabled={!hasChanges || saving}

@@ -31,13 +31,18 @@ const MAX_HISTORY = 50
 
 /* ─── Component ──────────────────────────────────────────────────── */
 
-export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelect }) {
+export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelect, fileId }) {
   const [blocks, setBlocks] = useState(() => markdownToBlocks(initialContent))
   const [activeBlockId, setActiveBlockId] = useState(blocks[0]?.id)
   const [slashMenu, setSlashMenu] = useState(null)
   const [caretTarget, setCaretTarget] = useState(null) // { blockId, offset }
   const [pageLinkOpen, setPageLinkOpen] = useState(false)
   const [pageLinkBlockId, setPageLinkBlockId] = useState(null)
+  const [selectAllStage, setSelectAllStage] = useState(0) // 0=none, 1=block, 2=doc
+  const selectAllTimer = useRef(null)
+
+  const rootRef = useRef(null)
+  const clipboardRef = useRef(null)
 
   // Undo/redo stacks
   const undoStackRef = useRef([])
@@ -73,6 +78,20 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
     },
     [onChange],
   )
+
+  // Ensure there is always at least one editable block at the end.
+  // (Covers cases where blocks are set externally, e.g. initialContent or
+  // refetches, and ends with a non-text block.)
+  useEffect(() => {
+    const last = blocks[blocks.length - 1]
+    if (!last || last.type !== BLOCK_TYPES.PARAGRAPH) {
+      setBlocks((prev) => {
+        const tail = prev[prev.length - 1]
+        if (tail && tail.type === BLOCK_TYPES.PARAGRAPH) return prev
+        return [...prev, createBlock(BLOCK_TYPES.PARAGRAPH)]
+      })
+    }
+  }, [blocks])
 
   /* ─── Undo / Redo handlers ─── */
   const handleUndo = useCallback(() => {
@@ -335,7 +354,13 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
       pushUndo(blocks)
 
       const slashIndex = block.content.lastIndexOf("/")
-      const newContent = block.content.slice(0, slashIndex).trimEnd()
+      const before = block.content.slice(0, slashIndex).trimEnd()
+
+      const loremText =
+        "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."
+
+      const newContent =
+        command.id === "lorem" ? `${before} ${loremText}`.trim() : before
 
       const newBlocks = blocks.map((b) =>
         b.id === slashMenu.blockId
@@ -382,15 +407,51 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
     [blocks, pageLinkBlockId, persist, pushUndo],
   )
 
+  // Extract imageId from a presigned S3 URL (expected: /wikis/{wikiId}/images/{id}.webp)
+  const extractImageIdFromUrl = (url) => {
+    if (!url) return null
+    try {
+      const parsed = new URL(url)
+      const pathParts = parsed.pathname.split("/").filter(Boolean)
+      const last = pathParts[pathParts.length - 1]
+      const match = last.match(/^(.+)\.webp$/)
+      return match ? match[1] : null
+    } catch {
+      return null
+    }
+  }
+
+  const deleteImageAsset = useCallback(
+    async (block) => {
+      if (!wikiId || block?.type !== BLOCK_TYPES.IMAGE) return
+      const imageId = block.imageId || extractImageIdFromUrl(block.imageUrl)
+      if (!imageId) return
+
+      try {
+        const { apiClient } = await import("../../services/api")
+        await apiClient.deleteImage(wikiId, imageId)
+      } catch (err) {
+        console.warn("Failed to delete image asset", err)
+      }
+    },
+    [wikiId],
+  )
+
   /* ─── Delete an entire block (e.g. removing a page link) ─── */
   const handleDeleteBlock = useCallback(
-    (blockId) => {
+    async (blockId) => {
+      const block = blocks.find((b) => b.id === blockId)
+      if (block?.type === BLOCK_TYPES.IMAGE) {
+        // Cleanup in the background — do not block UI updates
+        deleteImageAsset(block)
+      }
+
       pushUndo(blocks)
       const newBlocks = blocks.filter((b) => b.id !== blockId)
       // Ensure there's always at least one block
       persist(newBlocks.length > 0 ? newBlocks : [createBlock(BLOCK_TYPES.PARAGRAPH)])
     },
-    [blocks, persist, pushUndo],
+    [blocks, persist, pushUndo, deleteImageAsset],
   )
 
   /* ─── Indent / outdent (Tab / Shift+Tab on list blocks) ─── */
@@ -410,43 +471,59 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
   /* ─── Change block type (from + menu) ─── */
   const handleChangeType = useCallback(
     (blockId, newType) => {
+      const oldBlock = blocks.find((b) => b.id === blockId)
+      if (oldBlock?.type === BLOCK_TYPES.IMAGE) {
+        deleteImageAsset(oldBlock)
+      }
       pushUndo(blocks)
       const newBlocks = blocks.map((b) =>
         b.id === blockId ? { ...b, type: newType } : b,
       )
       persist(newBlocks)
     },
-    [blocks, persist, pushUndo],
+    [blocks, persist, pushUndo, deleteImageAsset],
   )
 
   /* ─── Image upload handler ─── */
   const handleImageUpload = useCallback(
     async (blockId, file) => {
       if (!wikiId) return
+
+      const currentBlock = blocks.find((b) => b.id === blockId)
+      const oldImageId = currentBlock?.imageId || extractImageIdFromUrl(currentBlock?.imageUrl)
+
       try {
         const { apiClient } = await import("../../services/api")
         const result = await apiClient.uploadImage(wikiId, file)
-        // result should contain the image URL or imageId
-        const url = result.url || result.imageUrl || ""
+        // result should contain the image URL + imageId
+        const imageId = result.imageId || null
+        const url = result.presignedUrl || result.url || result.imageUrl || ""
+
         pushUndo(blocks)
         const newBlocks = blocks.map((b) =>
-          b.id === blockId ? { ...b, imageUrl: url } : b,
+          b.id === blockId ? { ...b, imageUrl: url, imageId } : b,
         )
         persist(newBlocks)
+
+        // Clean up old upload (if it’s different)
+        if (oldImageId && oldImageId !== imageId) {
+          deleteImageAsset({ type: BLOCK_TYPES.IMAGE, imageId: oldImageId })
+        }
       } catch (err) {
         console.error("Image upload failed:", err)
         alert("Failed to upload image: " + err.message)
       }
     },
-    [blocks, persist, pushUndo, wikiId],
+    [blocks, persist, pushUndo, wikiId, deleteImageAsset],
   )
 
   /* ─── Image URL set handler ─── */
   const handleImageUrlSet = useCallback(
     (blockId, url) => {
       pushUndo(blocks)
+      const imageId = extractImageIdFromUrl(url)
       const newBlocks = blocks.map((b) =>
-        b.id === blockId ? { ...b, imageUrl: url } : b,
+        b.id === blockId ? { ...b, imageUrl: url, imageId } : b,
       )
       persist(newBlocks)
     },
@@ -464,8 +541,218 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
   }
 
   /* ─── Render ─── */
+  const getSelectedBlockIds = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return []
+    const range = sel.getRangeAt(0)
+    const startNode = range.startContainer
+    const endNode = range.endContainer
+
+    const getBlockId = (node) => {
+      let cur = node
+      while (cur && cur !== rootRef.current) {
+        if (cur.dataset && cur.dataset.blockId) return cur.dataset.blockId
+        cur = cur.parentElement
+      }
+      return null
+    }
+
+    const startId = getBlockId(startNode)
+    const endId = getBlockId(endNode)
+    if (!startId || !endId) return []
+
+    const startIdx = blocks.findIndex((b) => b.id === startId)
+    const endIdx = blocks.findIndex((b) => b.id === endId)
+    if (startIdx === -1 || endIdx === -1) return []
+
+    const [from, to] = startIdx <= endIdx ? [startIdx, endIdx] : [endIdx, startIdx]
+    return blocks.slice(from, to + 1).map((b) => b.id)
+  }
+
+  const getCurrentBlockId = () => {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return null
+    const node = sel.anchorNode || sel.focusNode
+    if (!node) return null
+
+    let cur = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement
+    while (cur && cur !== rootRef.current) {
+      if (cur.dataset && cur.dataset.blockId) return cur.dataset.blockId
+      cur = cur.parentElement
+    }
+    return null
+  }
+
+  const selectCurrentBlock = () => {
+    const blockId = getCurrentBlockId()
+    if (!blockId) return
+
+    const el = rootRef.current?.querySelector(`[data-block-id="${blockId}"] .block-editable`) ||
+      rootRef.current?.querySelector(`[data-block-id="${blockId}"]`)
+    if (!el) return
+
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
+  const selectAllDocument = () => {
+    const editable = rootRef.current?.querySelectorAll(".block-editable")
+    if (!editable || editable.length === 0) return
+    const first = editable[0]
+    const last = editable[editable.length - 1]
+    const range = document.createRange()
+    range.setStart(first, 0)
+    range.setEnd(last, last.childNodes.length)
+    const sel = window.getSelection()
+    sel.removeAllRanges()
+    sel.addRange(range)
+  }
+
+  const resetSelectAllState = () => {
+    setSelectAllStage(0)
+    if (selectAllTimer.current) {
+      clearTimeout(selectAllTimer.current)
+      selectAllTimer.current = null
+    }
+  }
+
   return (
-    <div className="block-editor-root">
+    <div
+      className="block-editor-root"
+      ref={rootRef}
+      onKeyDown={(e) => {
+        // Cmd/Ctrl + A: 1st press = select current block, 2nd press = select entire document
+        if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+          e.preventDefault()
+          if (selectAllStage === 1) {
+            selectAllDocument()
+            setSelectAllStage(2)
+          } else {
+            selectCurrentBlock()
+            setSelectAllStage(1)
+          }
+          selectAllTimer.current = window.setTimeout(resetSelectAllState, 800)
+          return
+        }
+
+        // Delete/Backspace when whole-document is selected should clear everything
+        if (e.key === "Backspace" || e.key === "Delete") {
+          const selectedIds = getSelectedBlockIds()
+          const hasFullSelection =
+            selectAllStage === 2 ||
+            (selectedIds.length > 0 && selectedIds.length === blocks.length)
+
+          if (hasFullSelection) {
+            e.preventDefault()
+            const newBlocks = [createBlock(BLOCK_TYPES.PARAGRAPH)]
+            persist(newBlocks)
+            setActiveBlockId(newBlocks[0].id)
+            resetSelectAllState()
+            return
+          }
+
+          // If the user used Cmd+A once (current block selection), delete that block
+          if (selectAllStage === 1) {
+            const currentBlockId = getCurrentBlockId()
+            if (currentBlockId) {
+              e.preventDefault()
+              const remaining = blocks.filter((b) => b.id !== currentBlockId)
+              const newBlocks = remaining.length ? remaining : [createBlock(BLOCK_TYPES.PARAGRAPH)]
+              persist(newBlocks)
+              setActiveBlockId(newBlocks[0].id)
+              resetSelectAllState()
+              return
+            }
+          }
+
+          if (selectedIds.length > 1) {
+            e.preventDefault()
+            const remaining = blocks.filter((b) => !selectedIds.includes(b.id))
+            const newBlocks = remaining.length ? remaining : [createBlock(BLOCK_TYPES.PARAGRAPH)]
+            persist(newBlocks)
+            setActiveBlockId(newBlocks[0].id)
+            resetSelectAllState()
+          }
+        }
+      }}
+      onCopy={(e) => {
+        const selectedIds = getSelectedBlockIds()
+        const hasFullSelection =
+          selectAllStage === 2 ||
+          (selectedIds.length > 0 && selectedIds.length === blocks.length)
+        if (!selectedIds.length && !hasFullSelection) return
+        e.preventDefault()
+        const toCopy = hasFullSelection ? blocks : blocks.filter((b) => selectedIds.includes(b.id))
+        e.clipboardData.setData("text/plain", blocksToMarkdown(toCopy))
+        resetSelectAllState()
+      }}
+      onCut={(e) => {
+        const selectedIds = getSelectedBlockIds()
+        const hasFullSelection =
+          selectAllStage === 2 ||
+          (selectedIds.length > 0 && selectedIds.length === blocks.length)
+        if (!selectedIds.length && !hasFullSelection) return
+        e.preventDefault()
+        const toCut = hasFullSelection ? blocks : blocks.filter((b) => selectedIds.includes(b.id))
+        e.clipboardData.setData("text/plain", blocksToMarkdown(toCut))
+        const remaining = blocks.filter((b) => !toCut.includes(b))
+        persist(remaining.length ? remaining : [createBlock(BLOCK_TYPES.PARAGRAPH)])
+        resetSelectAllState()
+      }}
+      onPaste={(e) => {
+        e.preventDefault()
+        const text = e.clipboardData.getData("text/plain")
+        if (!text) return
+
+        const pastedBlocks = markdownToBlocks(text)
+        const selectedIds = getSelectedBlockIds()
+        const hasFullSelection =
+          selectAllStage === 2 ||
+          (selectedIds.length > 0 && selectedIds.length === blocks.length)
+
+        // If whole document is selected, replace it fully
+        if (hasFullSelection) {
+          persist(pastedBlocks)
+          return
+        }
+
+        // If user has blocks selected, replace them with pasted content.
+        if (selectedIds.length) {
+          const startId = selectedIds[0]
+          const endId = selectedIds[selectedIds.length - 1]
+          const startIndex = blocks.findIndex((b) => b.id === startId)
+          const endIndex = blocks.findIndex((b) => b.id === endId)
+          if (startIndex >= 0 && endIndex >= 0) {
+            const newBlocks = [
+              ...blocks.slice(0, startIndex),
+              ...pastedBlocks,
+              ...blocks.slice(endIndex + 1),
+            ]
+            persist(newBlocks)
+            return
+          }
+        }
+
+        // Otherwise, insert after the active block (or at the end).
+        const activeIndex = blocks.findIndex((b) => b.id === activeBlockId)
+        if (activeIndex >= 0) {
+          const newBlocks = [
+            ...blocks.slice(0, activeIndex + 1),
+            ...pastedBlocks,
+            ...blocks.slice(activeIndex + 1),
+          ]
+          persist(newBlocks)
+          return
+        }
+
+        // Fallback: replace whole document
+        persist(pastedBlocks)
+      }}
+    >
+      <textarea ref={clipboardRef} style={{ position: "fixed", left: -9999, top: -9999 }} />
       {blocks.map((block, idx) => (
         <Block
           key={block.id}
@@ -496,6 +783,8 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
           onImageUrlSet={handleImageUrlSet}
           onFileSelect={onFileSelect}
           wikiId={wikiId}
+          fileId={fileId}
+          isOnlyBlock={blocks.length === 1}
         />
       ))}
       {slashMenu && !pageLinkOpen && (

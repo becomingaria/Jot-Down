@@ -26,6 +26,9 @@ export class ApiConstruct extends Construct {
             TABLE_NAME: table.tableName,
             BUCKET_NAME: bucket.bucketName,
             USER_POOL_ID: userPool.userPoolId,
+            // Keep the number of stored versions bounded to avoid unbounded DynamoDB growth.
+            // Increasing this value will allow more historical checkpoints per file.
+            MAX_VERSIONS_PER_FILE: "10",
         }
 
         // Shared Lambda configuration — ARM64 for cost saving
@@ -125,6 +128,26 @@ export class ApiConstruct extends Construct {
                     "X-Amz-Security-Token",
                 ],
             },
+        })
+
+        // Ensure CORS headers are included even on 4xx / 401 / access denied responses
+        const corsResponseHeaders = {
+            "Access-Control-Allow-Origin": "'*'",
+            "Access-Control-Allow-Headers": "'*'",
+            "Access-Control-Allow-Methods": "'*'",
+        }
+
+        this.api.addGatewayResponse("Default4xx", {
+            type: apigateway.ResponseType.DEFAULT_4XX,
+            responseHeaders: corsResponseHeaders,
+        })
+        this.api.addGatewayResponse("Unauthorized", {
+            type: apigateway.ResponseType.UNAUTHORIZED,
+            responseHeaders: corsResponseHeaders,
+        })
+        this.api.addGatewayResponse("AccessDenied", {
+            type: apigateway.ResponseType.ACCESS_DENIED,
+            responseHeaders: corsResponseHeaders,
         })
 
         // Cognito Authorizer

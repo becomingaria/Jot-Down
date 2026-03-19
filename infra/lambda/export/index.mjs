@@ -152,24 +152,40 @@ async function exportFolderAsZip(wikiId, folderId) {
 
     if (!folderResult.Item) return response(404, { error: "Folder not found" })
 
-    // Get all files in folder
-    const filesResult = await ddb.send(
+    // Get all folders and files for this wiki (we'll filter client-side)
+    const allItems = await ddb.send(
         new QueryCommand({
             TableName: TABLE_NAME,
-            KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-            FilterExpression: "folderId = :fid",
-            ExpressionAttributeValues: {
-                ":pk": `WIKI#${wikiId}`,
-                ":sk": "FILE#",
-                ":fid": folderId,
-            },
+            KeyConditionExpression: "PK = :pk",
+            ExpressionAttributeValues: { ":pk": `WIKI#${wikiId}` },
         }),
     )
 
-    // Build a simple ZIP-like structure (for proper ZIP, bundle 'archiver' package)
-    // TODO: Use archiver package for production
+    const folders = (allItems.Items || []).filter(
+        (i) => i.entityType === "folder",
+    )
+    const fileMetas = (allItems.Items || []).filter(
+        (i) => i.entityType === "file",
+    )
+
+    const baseFolderPath = (folderResult.Item.path || "").replace(/^\//, "")
+    const basePrefix = baseFolderPath ? `${baseFolderPath}/` : ""
+
+    // Include the requested folder and any nested subfolders (based on path)
+    const includedFolderIds = new Set([folderId])
+    for (const f of folders) {
+        const p = (f.path || "").replace(/^\//, "")
+        if (p && basePrefix && p.startsWith(basePrefix)) {
+            includedFolderIds.add(f.folderId)
+        }
+    }
+
+    const folderMap = Object.fromEntries(folders.map((f) => [f.folderId, f]))
+
     const files = []
-    for (const fileMeta of filesResult.Items || []) {
+    for (const fileMeta of fileMetas) {
+        if (!includedFolderIds.has(fileMeta.folderId)) continue
+
         const s3Result = await s3.send(
             new GetObjectCommand({
                 Bucket: BUCKET_NAME,
@@ -177,14 +193,20 @@ async function exportFolderAsZip(wikiId, folderId) {
             }),
         )
         const content = await streamToString(s3Result.Body)
-        files.push({ name: fileMeta.name, content })
+
+        const folder = folderMap[fileMeta.folderId]
+        const folderPath = (folder?.path || "").replace(/^\//, "")
+        const filePath = folderPath
+            ? `${folderPath}/${fileMeta.name}`
+            : fileMeta.name
+
+        files.push({ path: filePath, content })
     }
 
-    // For now, return as JSON with file contents (placeholder for ZIP)
     return response(200, {
         folderName: folderResult.Item.name,
-        files: files.map((f) => ({ name: f.name, content: f.content })),
-        note: "ZIP export will be implemented with archiver package",
+        files: files.map((f) => ({ path: f.path, content: f.content })),
+        note: "This endpoint returns file paths and contents; the client is expected to create a ZIP archive.",
     })
 }
 
@@ -215,12 +237,15 @@ async function exportWikiAsZip(wikiId) {
         )
         const content = await streamToString(s3Result.Body)
 
-        // Determine path based on folder
+        // Determine path based on folder; use the folder's full 'path' field for nested folders.
         let filePath = fileMeta.name
         if (fileMeta.folderId) {
             const folder = folders.find((f) => f.folderId === fileMeta.folderId)
             if (folder) {
-                filePath = `${folder.name}/${fileMeta.name}`
+                const folderPath = (folder.path || "").replace(/^\//, "")
+                filePath = folderPath
+                    ? `${folderPath}/${fileMeta.name}`
+                    : fileMeta.name
             }
         }
 
@@ -229,6 +254,6 @@ async function exportWikiAsZip(wikiId) {
 
     return response(200, {
         files: files.map((f) => ({ path: f.path, content: f.content })),
-        note: "ZIP export will be implemented with archiver package",
+        note: "This endpoint returns a list of files and paths; the client is expected to create a ZIP archive.",
     })
 }

@@ -1,22 +1,38 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { ThemeProvider, createTheme, CssBaseline } from "@mui/material"
+import { ThemeProvider, createTheme, responsiveFontSizes, CssBaseline } from "@mui/material"
 import { AuthProvider } from "./contexts/AuthContext"
 import { LoginPage } from "./components/auth/LoginPage"
 import { PrivateRoute } from "./components/auth/PrivateRoute"
 import { WikiList } from "./components/wiki/WikiList"
 import { WikiView } from "./components/wiki/WikiView"
 
-const theme = createTheme({
+let theme = createTheme({
   palette: {
     mode: "light",
+    background: {
+      default: "#F7F9F7",
+      paper: "#FFFFFF",
+    },
     primary: {
-      main: "#1976d2",
+      main: "#9FD8C6",
+      light: "#CFEDE3",
+      dark: "#5FAF9A",
+      contrastText: "#4E3A2E",
     },
     secondary: {
-      main: "#dc004e",
+      main: "#C7A78B",
+      contrastText: "#4E3A2E",
     },
+    text: {
+      primary: "#4E3A2E",
+      secondary: "#8B6A52",
+    },
+    divider: "#AEB8B2",
   },
 })
+
+// Responsive typography for mobile readability
+theme = responsiveFontSizes(theme)
 
 function App() {
   return (

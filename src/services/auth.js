@@ -37,9 +37,23 @@ export const authService = {
                         user: {
                             email: result.getIdToken().payload.email,
                             userId: result.getIdToken().payload.sub,
-                            groups:
-                                result.getIdToken().payload["cognito:groups"] ||
-                                [],
+                            groups: (() => {
+                                const raw =
+                                    result.getIdToken().payload[
+                                        "cognito:groups"
+                                    ]
+                                const list =
+                                    typeof raw === "string"
+                                        ? raw.split(",")
+                                        : raw || []
+                                return Array.isArray(list)
+                                    ? list.map((g) =>
+                                          typeof g === "string"
+                                              ? g.toLowerCase()
+                                              : g,
+                                      )
+                                    : []
+                            })(),
                         },
                     })
                 },
@@ -88,9 +102,21 @@ export const authService = {
                     user: {
                         email: session.getIdToken().payload.email,
                         userId: session.getIdToken().payload.sub,
-                        groups:
-                            session.getIdToken().payload["cognito:groups"] ||
-                            [],
+                        groups: (() => {
+                            const raw =
+                                session.getIdToken().payload["cognito:groups"]
+                            const list =
+                                typeof raw === "string"
+                                    ? raw.split(",")
+                                    : raw || []
+                            return Array.isArray(list)
+                                ? list.map((g) =>
+                                      typeof g === "string"
+                                          ? g.toLowerCase()
+                                          : g,
+                                  )
+                                : []
+                        })(),
                     },
                 })
             })

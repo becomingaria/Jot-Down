@@ -19,6 +19,10 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const s3 = new S3Client({})
 const TABLE_NAME = process.env.TABLE_NAME
 const BUCKET_NAME = process.env.BUCKET_NAME
+const MAX_VERSIONS_PER_FILE = parseInt(
+    process.env.MAX_VERSIONS_PER_FILE || "10",
+    10,
+)
 
 function response(statusCode, body, extraHeaders = {}) {
     return {
@@ -526,6 +530,127 @@ export async function handler(event) {
             )
 
             return response(200, { updated: true })
+        }
+
+        // --- VERSION HISTORY ---
+        // POST /wikis/{wikiId}/files/{fileId}/versions — create a version checkpoint
+        if (
+            method === "POST" &&
+            path === "/wikis/{wikiId}/files/{fileId}/versions"
+        ) {
+            const metaResult = await ddb.send(
+                new GetCommand({
+                    TableName: TABLE_NAME,
+                    Key: { PK: `WIKI#${wikiId}`, SK: `FILE#${fileId}` },
+                }),
+            )
+
+            if (!metaResult.Item)
+                return response(404, { error: "File not found" })
+
+            const now = new Date().toISOString()
+            const versionId = `${Date.now()}#${randomUUID()}`
+            const item = {
+                PK: `WIKI#${wikiId}`,
+                SK: `FILE#${fileId}#VERSION#${versionId}`,
+                entityType: "version",
+                wikiId,
+                fileId,
+                versionId,
+                content: body.content || "",
+                createdAt: now,
+                createdBy: user.userId,
+            }
+
+            await ddb.send(
+                new PutCommand({ TableName: TABLE_NAME, Item: item }),
+            )
+
+            // Garbage collect older versions to keep storage bounded.
+            // Only keep the newest N versions per file (newest first).
+            if (MAX_VERSIONS_PER_FILE > 0) {
+                const versionsResult = await ddb.send(
+                    new QueryCommand({
+                        TableName: TABLE_NAME,
+                        KeyConditionExpression:
+                            "PK = :pk AND begins_with(SK, :sk)",
+                        ExpressionAttributeValues: {
+                            ":pk": `WIKI#${wikiId}`,
+                            ":sk": `FILE#${fileId}#VERSION#`,
+                        },
+                        ScanIndexForward: false, // newest first
+                    }),
+                )
+
+                const versionsToDelete = (versionsResult.Items || []).slice(
+                    MAX_VERSIONS_PER_FILE,
+                )
+                if (versionsToDelete.length > 0) {
+                    await Promise.all(
+                        versionsToDelete.map((v) =>
+                            ddb.send(
+                                new DeleteCommand({
+                                    TableName: TABLE_NAME,
+                                    Key: { PK: v.PK, SK: v.SK },
+                                }),
+                            ),
+                        ),
+                    )
+                }
+            }
+
+            return response(201, { versionId, createdAt: now })
+        }
+
+        // GET /wikis/{wikiId}/files/{fileId}/versions — list versions
+        if (
+            method === "GET" &&
+            path === "/wikis/{wikiId}/files/{fileId}/versions"
+        ) {
+            const result = await ddb.send(
+                new QueryCommand({
+                    TableName: TABLE_NAME,
+                    KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+                    ExpressionAttributeValues: {
+                        ":pk": `WIKI#${wikiId}`,
+                        ":sk": `FILE#${fileId}#VERSION#`,
+                    },
+                    ScanIndexForward: false, // newest first
+                }),
+            )
+
+            const versions = (result.Items || []).map((item) => ({
+                versionId: item.versionId,
+                createdAt: item.createdAt,
+                createdBy: item.createdBy,
+            }))
+
+            return response(200, { versions })
+        }
+
+        // GET /wikis/{wikiId}/files/{fileId}/versions/{versionId} — get version details
+        if (
+            method === "GET" &&
+            path === "/wikis/{wikiId}/files/{fileId}/versions/{versionId}"
+        ) {
+            const { versionId } = event.pathParameters || {}
+            const sk = `FILE#${fileId}#VERSION#${versionId}`
+            const result = await ddb.send(
+                new GetCommand({
+                    TableName: TABLE_NAME,
+                    Key: { PK: `WIKI#${wikiId}`, SK: sk },
+                }),
+            )
+
+            if (!result.Item)
+                return response(404, { error: "Version not found" })
+
+            return response(200, {
+                versionId: result.Item.versionId,
+                createdAt: result.Item.createdAt,
+                createdBy: result.Item.createdBy,
+                content: result.Item.content,
+            })
         }
 
         // DELETE /wikis/{wikiId}/files/{fileId} — Delete file

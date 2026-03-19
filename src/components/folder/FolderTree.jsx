@@ -37,11 +37,18 @@ import {
   NoteAdd,
   CreateNewFolder,
   PostAdd,
+  ArrowUpward,
+  ArrowDownward,
+  MoreVert,
+  Close,
+  Edit,
 } from "@mui/icons-material"
+import { zipSync } from "fflate/browser"
+import { apiClient } from "../../services/api"
 import { useFolders } from "../../hooks/useFolder"
 import { useFiles } from "../../hooks/useFile"
 
-export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigger }) {
+export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigger, isMobile }) {
   const { folders, createFolder, deleteFolder, updateFolder } = useFolders(wikiId)
   const { files, createFile, deleteFile, updateFile, refetch: refetchFiles } = useFiles(wikiId)
   const [expandedFolders, setExpandedFolders] = useState({})
@@ -57,8 +64,15 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
   const [renameTarget, setRenameTarget] = useState(null) // { type: 'file'|'folder', id, name }
   const [renameName, setRenameName] = useState("")
 
+  // Mobile move menu state
+  const [mobileMoveAnchor, setMobileMoveAnchor] = useState(null)
+  const [mobileMoveTarget, setMobileMoveTarget] = useState(null) // { type, id, parentKey }
+
   // Delete confirmation dialog state
   const [deleteTarget, setDeleteTarget] = useState(null) // { type: 'file'|'folder', id, name }
+
+  // Export folder state
+  const [exportingFolderId, setExportingFolderId] = useState(null)
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState(null) // { mouseX, mouseY, type, id, name, folderId }
@@ -169,6 +183,20 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
       visited.add(cursor.folderId)
       if (cursor.parentFolderId === sourceFolderId) return true
       cursor = cursor.parentFolderId ? folderMap[cursor.parentFolderId] : null
+    }
+    return false
+  }
+
+  const isFileDescendant = (sourceFileId, targetFileId) => {
+    if (!sourceFileId || !targetFileId) return false
+    if (sourceFileId === targetFileId) return true
+    const fileMap = Object.fromEntries(files.map((f) => [f.fileId, f]))
+    let cursor = fileMap[targetFileId]
+    const visited = new Set()
+    while (cursor && !visited.has(cursor.fileId)) {
+      visited.add(cursor.fileId)
+      if (cursor.parentFileId === sourceFileId) return true
+      cursor = cursor.parentFileId ? fileMap[cursor.parentFileId] : null
     }
     return false
   }
@@ -297,19 +325,26 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
       else if (relY > 0.75) position = "after"
       else position = "into"
     } else {
-      position = relY < 0.5 ? "before" : "after"
+      if (relY < 0.25) position = "before"
+      else if (relY > 0.75) position = "after"
+      else position = "into"
     }
-    const logKey = `${id}:${position}:${parentKey}`
+
+    const targetParentKey = position === "into" ? `file:${id}` : parentKey
+    const logKey = `${id}:${position}:${targetParentKey}`
     if (lastLoggedDropRef.current !== logKey) {
       lastLoggedDropRef.current = logKey
-      console.log(`%c[DnD] dragOver`, "color:#ff9800;font-weight:bold", { type, id, position, parentKey, relY: relY.toFixed(2) })
+      console.log(`%c[DnD] dragOver`, "color:#ff9800;font-weight:bold", { type, id, position, parentKey: targetParentKey, relY: relY.toFixed(2) })
     }
-    setDropTarget({ id, position, parentKey })
-    // Hover-to-expand: auto-expand a collapsed folder after 600 ms
-    if (type === "folder" && position === "into" && !expandedFolders[id]) {
+    setDropTarget({ id, position, parentKey: targetParentKey })
+    // Hover-to-expand: auto-expand a collapsed folder or file after 600 ms
+    const isHoverExpandTarget = (type === "folder" || type === "file") && position === "into"
+    const isExpandedMap = type === "folder" ? expandedFolders : expandedFiles
+    const setExpandedMap = type === "folder" ? setExpandedFolders : setExpandedFiles
+    if (isHoverExpandTarget && !isExpandedMap[id]) {
       if (!hoverExpandTimerRef.current)
         hoverExpandTimerRef.current = setTimeout(() => {
-          setExpandedFolders(prev => ({ ...prev, [id]: true }))
+          setExpandedMap(prev => ({ ...prev, [id]: true }))
           hoverExpandTimerRef.current = null
         }, 600)
     } else {
@@ -324,7 +359,8 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
     const currentDrag = dragStateRef.current || dragState
     const items = currentDrag?.items || []
     const rawDt = dropTarget
-    console.log("%c[DnD] drop fired", "color:#4caf50;font-weight:bold", { targetType: type, targetId: id, parentKey, rawDt, items })
+    const targetParentKey = rawDt?.parentKey ?? parentKey
+    console.log("%c[DnD] drop fired", "color:#4caf50;font-weight:bold", { targetType: type, targetId: id, parentKey: targetParentKey, rawDt, items })
     dragStateRef.current = null
     setDragState(null)
     setDropTarget(null)
@@ -347,6 +383,16 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
         for (const item of activeItems) {
           if (item.type === "folder" && isFolderDescendant(item.id, id)) {
             console.warn("[DnD] drop blocked — circular folder drop", { draggedFolder: item.id, targetFolder: id })
+            return
+          }
+        }
+      }
+
+      // Block circular file drops (subpage recursion)
+      if (dt.position === "into" && type === "file") {
+        for (const item of activeItems) {
+          if (item.type === "file" && isFileDescendant(item.id, id)) {
+            console.warn("[DnD] drop blocked — circular file drop", { draggedFile: item.id, targetFile: id })
             return
           }
         }
@@ -376,11 +422,11 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
 
       // Snapshot sibling IDs at target parent BEFORE any await
       const snapshotIds = [
-        ...((parentKey === "root" ? getRootFiles() :
-          parentKey.startsWith("folder:") ? getFilesForFolder(parentKey.slice(7)) :
-            getSubPages(parentKey.slice(5))).map(f => f.fileId)),
-        ...((parentKey === "root" ? rootFolders :
-          parentKey.startsWith("folder:") ? (folderMap[parentKey.slice(7)]?.children || []) :
+        ...((targetParentKey === "root" ? getRootFiles() :
+          targetParentKey.startsWith("folder:") ? getFilesForFolder(targetParentKey.slice(7)) :
+            getSubPages(targetParentKey.slice(5))).map(f => f.fileId)),
+        ...((targetParentKey === "root" ? rootFolders :
+          targetParentKey.startsWith("folder:") ? (folderMap[targetParentKey.slice(7)]?.children || []) :
             []).map(f => f.folderId)),
       ]
 
@@ -392,11 +438,11 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
           ? (draggedFolder?.parentFolderId ? `folder:${draggedFolder.parentFolderId}` : "root")
           : (draggedFile?.parentFileId ? `file:${draggedFile.parentFileId}`
             : (draggedFile?.folderId ? `folder:${draggedFile.folderId}` : "root"))
-        if (currentParentKey !== parentKey) {
-          const newFolderId = parentKey.startsWith("folder:") ? parentKey.slice(7) : null
-          const newParentFileId = parentKey.startsWith("file:") ? parentKey.slice(5) : null
+        if (currentParentKey !== targetParentKey) {
+          const newFolderId = targetParentKey.startsWith("folder:") ? targetParentKey.slice(7) : null
+          const newParentFileId = targetParentKey.startsWith("file:") ? targetParentKey.slice(5) : null
           console.log(`%c[DnD] → reparenting`, "color:#e91e63;font-weight:bold", {
-            item, currentParentKey, newParentKey: parentKey, newFolderId, newParentFileId
+            item, currentParentKey, newParentKey: targetParentKey, newFolderId, newParentFileId
           })
           if (item.type === "file") {
             const parentFile = newParentFileId ? files.find(f => f.fileId === newParentFileId) : null
@@ -419,9 +465,9 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
         await refetchFiles()
       }
 
-      console.log("%c[DnD] → reordering", "color:#00bcd4;font-weight:bold", { parentKey, insertIdx: dt.position === "after" ? "after " + id : "before " + id, newOrder: [] })
+      console.log("%c[DnD] → reordering", "color:#00bcd4;font-weight:bold", { parentKey: targetParentKey, insertIdx: dt.position === "after" ? "after " + id : "before " + id, newOrder: [] })
       const primaryItem = activeItems[0]
-      const base = localOrder[parentKey]?.length ? localOrder[parentKey] : snapshotIds
+      const base = localOrder[targetParentKey]?.length ? localOrder[targetParentKey] : snapshotIds
       const existingSet = new Set(base)
       const merged = [...base, ...snapshotIds.filter(i => !existingSet.has(i)), primaryItem.id]
         .filter((v, i, a) => a.indexOf(v) === i)
@@ -429,7 +475,7 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
       const targetIdx = without.indexOf(id)
       const insertIdx = dt.position === "after" ? targetIdx + 1 : Math.max(0, targetIdx)
       const newOrder = [...without.slice(0, insertIdx), primaryItem.id, ...without.slice(insertIdx)]
-      saveOrder({ ...localOrder, [parentKey]: newOrder })
+      saveOrder({ ...localOrder, [targetParentKey]: newOrder })
     } catch (err) {
       console.error("[DnD] drop failed with error:", err)
     }
@@ -516,6 +562,62 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
 
   const { rootFolders, folderMap } = buildTree()
 
+  const getParentFolderId = (parentKey) =>
+    parentKey.startsWith("folder:") ? parentKey.slice(7) : null
+
+  const getParentFolderName = (parentKey) => {
+    const parentId = getParentFolderId(parentKey)
+    return parentId ? folderMap[parentId]?.name : "root"
+  }
+
+  const getSiblingFolders = (parentKey) => {
+    if (parentKey === "root") return rootFolders
+    const pid = getParentFolderId(parentKey)
+    return pid ? folderMap[pid]?.children || [] : []
+  }
+
+  const getChildFolders = (parentKey) => {
+    if (parentKey === "root") return rootFolders
+    const fid = getParentFolderId(parentKey)
+    return fid ? folderMap[fid]?.children || [] : []
+  }
+
+  const handleMobileMove = async ({ folderId = null, parentFileId = null } = {}) => {
+    if (!mobileMoveTarget) return
+    const { type, id } = mobileMoveTarget
+    const undoRecord = {
+      items: [{
+        id,
+        type,
+        fromFolderId:
+          type === "file"
+            ? files.find((f) => f.fileId === id)?.folderId || null
+            : folders.find((f) => f.folderId === id)?.parentFolderId || null,
+        fromParentFileId:
+          type === "file" ? files.find((f) => f.fileId === id)?.parentFileId || null : null,
+      }],
+    }
+
+    try {
+      if (type === "file") {
+        const file = files.find((f) => f.fileId === id)
+        await updateFile(id, {
+          folderId: folderId !== null ? folderId : file?.folderId || null,
+          parentFileId,
+        })
+      } else {
+        await updateFolder(id, { parentFolderId: folderId })
+      }
+      setUndoStack((prev) => [...prev.slice(-9), undoRecord])
+      await refetchFiles()
+    } catch (err) {
+      console.error("Mobile move failed:", err)
+    } finally {
+      setMobileMoveAnchor(null)
+      setMobileMoveTarget(null)
+    }
+  }
+
   // Set of valid fileIds — used to detect orphans whose parent was deleted
   const fileIdSet = new Set(files.map((f) => f.fileId))
   const hasValidParent = (f) => f.parentFileId && fileIdSet.has(f.parentFileId)
@@ -550,6 +652,18 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
     if (!stored?.length) return all
     const pos = Object.fromEntries(stored.map((id, i) => [id, i]))
     return [...all].sort((a, b) => (pos[a.id] ?? 9999) - (pos[b.id] ?? 9999))
+  }
+
+  // Mobile reordering helper (up/down buttons)
+  const moveItemInParent = (parentKey, id, direction) => {
+    const current = getOrderedChildren(parentKey).map((it) => it.id)
+    const idx = current.indexOf(id)
+    if (idx === -1) return
+    const target = direction === "up" ? idx - 1 : idx + 1
+    if (target < 0 || target >= current.length) return
+    const next = [...current]
+      ;[next[idx], next[target]] = [next[target], next[idx]]
+    saveOrder({ ...localOrder, [parentKey]: next })
   }
 
   /* ─── Context menu handlers ─── */
@@ -613,6 +727,49 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
     setDeleteTarget(null)
   }
 
+  const downloadBlob = (blob, filename) => {
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const ensureMdPath = (path) => {
+    if (!path) return "untitled.md"
+    const parts = path.split("/")
+    const last = parts.pop()
+    const fixedLast = last && last.toLowerCase().endsWith(".md") ? last : `${last}.md`
+    return [...parts, fixedLast].join("/")
+  }
+
+  const handleExportFolderFromContext = async () => {
+    if (contextMenu?.type !== "folder" || !contextMenu?.id) return
+
+    const folderId = contextMenu.id
+    setExportingFolderId(folderId)
+    try {
+      const data = await apiClient.exportFolder(wikiId, folderId)
+      const files = data.files || []
+      const encoder = new TextEncoder()
+      const zipEntries = {}
+      for (const file of files) {
+        const entryPath = ensureMdPath(file.path || file.name)
+        zipEntries[entryPath] = encoder.encode(file.content || "")
+      }
+      const zipped = zipSync(zipEntries)
+      const folderName = data.folderName || "export"
+      const filename = `${folderName.replace(/\s+/g, "_")}.zip`
+      downloadBlob(new Blob([zipped], { type: "application/zip" }), filename)
+    } catch (err) {
+      console.error("Folder export failed", err)
+    } finally {
+      setExportingFolderId(null)
+      handleContextMenuClose()
+    }
+  }
+
   const handleAddSubPageFromContext = () => {
     setParentFileId(contextMenu.id)
     setParentFolderId(contextMenu.folderId || null)
@@ -648,6 +805,15 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
     const isSelected = selectedItems.has(`folder:${folder.folderId}`)
     const isLastMoved = lastMovedId === folder.folderId
 
+    const listItemPadding = isMobile ? level * 1.5 : level * 2
+    const iconSize = isMobile ? "small" : "small"
+
+    const openMobileMoveMenu = (e) => {
+      e.stopPropagation()
+      setMobileMoveAnchor(e.currentTarget)
+      setMobileMoveTarget({ type: "folder", id: folder.folderId, parentKey })
+    }
+
     return (
       <Box
         key={folder.folderId}
@@ -661,7 +827,7 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
           disablePadding
           onDragOver={(e) => handleItemDragOver(e, "folder", folder.folderId, parentKey)}
           sx={{
-            pl: level * 2,
+            pl: listItemPadding,
             position: "relative",
             bgcolor: isInvalidDrop ? "error.50" : isDropInto ? "primary.50" : isLastMoved ? "success.50" : isSelected ? "action.hover" : "transparent",
             borderLeft: (isDropInto || isInvalidDrop) ? "3px solid" : "3px solid transparent",
@@ -706,14 +872,48 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
             }}
             sx={{ pr: 0 }}
           >
-            <ListItemIcon
-              draggable
-              onDragStart={(e) => handleDragStart(e, "folder", folder.folderId)}
-              onDragEnd={handleDragEnd}
-              sx={{ minWidth: 24, color: "text.disabled", cursor: "grab" }}
-            >
-              <DragIndicator fontSize="small" />
-            </ListItemIcon>
+            {isMobile && (
+              <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    moveItemInParent(parentKey, folder.folderId, "up")
+                  }}
+                >
+                  <ArrowUpward fontSize="small" />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    moveItemInParent(parentKey, folder.folderId, "down")
+                  }}
+                >
+                  <ArrowDownward fontSize="small" />
+                </IconButton>
+              </Box>
+            )}
+            {isMobile ? (
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openMobileMoveMenu(e)
+                }}
+              >
+                <MoreVert fontSize="small" />
+              </IconButton>
+            ) : (
+              <ListItemIcon
+                draggable
+                onDragStart={(e) => handleDragStart(e, "folder", folder.folderId)}
+                onDragEnd={handleDragEnd}
+                sx={{ minWidth: 24, color: "text.disabled", cursor: "grab" }}
+              >
+                <DragIndicator fontSize="small" />
+              </ListItemIcon>
+            )}
             <ListItemIcon sx={{ minWidth: 24 }}>
               {isExpanded ? <ExpandMore fontSize="small" /> : <ChevronRight fontSize="small" />}
             </ListItemIcon>
@@ -805,6 +1005,9 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
     const isExpanded = expandedFiles[file.fileId]
     const currentDrag = dragStateRef.current || dragState
     const isDraggingThis = currentDrag?.primary?.id === file.fileId
+    const isDropInto = dropTarget?.id === file.fileId && dropTarget?.position === "into"
+    const isInvalidDrop = isDropInto && currentDrag?.primary?.type === "file" && isFileDescendant(currentDrag.primary.id, file.fileId)
+    const listItemPadding = isMobile ? level * 1.5 : level * 2
 
     return (
       <Box
@@ -819,14 +1022,38 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
           disablePadding
           onDragOver={(e) => handleItemDragOver(e, "file", file.fileId, parentKey)}
           sx={{
-            pl: level * 2,
-            bgcolor: selectedFileId === file.fileId ? "action.selected" : selectedItems.has(`file:${file.fileId}`) ? "action.hover" : lastMovedId === file.fileId ? "success.50" : "transparent",
+            pl: listItemPadding,
+            position: "relative",
+            bgcolor: isInvalidDrop ? "error.50" : isDropInto ? "primary.50" : selectedFileId === file.fileId ? "action.selected" : selectedItems.has(`file:${file.fileId}`) ? "action.hover" : lastMovedId === file.fileId ? "success.50" : "transparent",
+            borderLeft: (isDropInto || isInvalidDrop) ? "3px solid" : "3px solid transparent",
+            borderColor: isInvalidDrop ? "error.main" : isDropInto ? "primary.main" : "transparent",
+            transition: "background-color 0.15s, border-color 0.15s",
             outline: lastMovedId === file.fileId ? "1px solid" : "none",
             outlineColor: "success.main",
-            transition: "background-color 0.15s",
           }}
           onContextMenu={(e) => handleContextMenu(e, "file", file.fileId, file.name, folderId)}
         >
+          {(isDropInto || isInvalidDrop) && (
+            <Box sx={{
+              position: "absolute",
+              right: 8,
+              top: "50%",
+              transform: "translateY(-50%)",
+              bgcolor: isInvalidDrop ? "error.main" : "primary.main",
+              color: "white",
+              borderRadius: "4px",
+              px: 0.75,
+              py: 0.1,
+              fontSize: 10,
+              fontWeight: 700,
+              lineHeight: "18px",
+              pointerEvents: "none",
+              zIndex: 10,
+              whiteSpace: "nowrap",
+            }}>
+              {isInvalidDrop ? "⊘ Can't drop here" : `Move into ${file.name}`}
+            </Box>
+          )}
           <ListItemButton
             onClick={(e) => {
               if (e.metaKey || e.ctrlKey) {
@@ -840,14 +1067,49 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
             }}
             sx={{ pr: 0 }}
           >
-            <ListItemIcon
-              draggable
-              onDragStart={(e) => handleDragStart(e, "file", file.fileId)}
-              onDragEnd={handleDragEnd}
-              sx={{ minWidth: 24, color: "text.disabled", cursor: "grab" }}
-            >
-              <DragIndicator fontSize="small" />
-            </ListItemIcon>
+            {isMobile && (
+              <Box sx={{ display: "flex", gap: 0.5, alignItems: "center" }}>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    moveItemInParent(parentKey, file.fileId, "up")
+                  }}
+                >
+                  <ArrowUpward fontSize="small" />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    moveItemInParent(parentKey, file.fileId, "down")
+                  }}
+                >
+                  <ArrowDownward fontSize="small" />
+                </IconButton>
+              </Box>
+            )}
+            {isMobile ? (
+              <IconButton
+                size="small"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setMobileMoveAnchor(e.currentTarget)
+                  setMobileMoveTarget({ type: "file", id: file.fileId, parentKey })
+                }}
+              >
+                <MoreVert fontSize="small" />
+              </IconButton>
+            ) : (
+              <ListItemIcon
+                draggable
+                onDragStart={(e) => handleDragStart(e, "file", file.fileId)}
+                onDragEnd={handleDragEnd}
+                sx={{ minWidth: 24, color: "text.disabled", cursor: "grab" }}
+              >
+                <DragIndicator fontSize="small" />
+              </ListItemIcon>
+            )}
             {hasSubPages ? (
               <ListItemIcon
                 sx={{ minWidth: 24, cursor: "pointer" }}
@@ -867,6 +1129,19 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
               {hasSubPages ? <Description fontSize="small" /> : fileIcon(file)}
             </ListItemIcon>
             <ListItemText primary={file.name} primaryTypographyProps={{ noWrap: true, fontSize: 14 }} />
+            {hasSubPages && (
+              <Tooltip title="Open file">
+                <IconButton
+                  size="small"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onFileSelect(file.fileId)
+                  }}
+                >
+                  <Edit fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="New Sub-page">
               <IconButton
                 size="small"
@@ -943,7 +1218,7 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
 
   return (
     <Box ref={scrollRef} sx={{ height: "100%", overflow: "auto" }}>
-      <Box sx={{ p: 2, display: "flex", gap: 1 }}>
+      <Box sx={{ p: isMobile ? 1 : 2, display: "flex", gap: isMobile ? 0.5 : 1, alignItems: "center" }}>
         <Button
           size="small"
           variant="outlined"
@@ -954,6 +1229,7 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
             setParentFileId(null)
             setCreateDialogOpen(true)
           }}
+          sx={{ flex: isMobile ? 1 : "none" }}
         >
           File
         </Button>
@@ -967,12 +1243,13 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
             setParentFileId(null)
             setCreateDialogOpen(true)
           }}
+          sx={{ flex: isMobile ? 1 : "none" }}
         >
           Folder
         </Button>
       </Box>
 
-      <List component="nav">
+      <List component="nav" dense={isMobile} sx={{ py: isMobile ? 0.5 : 1 }}>
         {getOrderedChildren("root").map(({ type, id, item }) =>
           type === "folder"
             ? renderFolder(item, 0, "root")
@@ -1011,7 +1288,7 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
             }).catch(err => console.error("Move to root failed:", err))
           }}
           sx={{
-            minHeight: 40, m: 1, borderRadius: 1,
+            minHeight: 40, m: isMobile ? 0.5 : 1, borderRadius: 1,
             display: "flex", alignItems: "center", justifyContent: "center",
             border: "2px dashed",
             borderColor: dropTarget?.id === "__root__" ? "primary.main" : "divider",
@@ -1034,6 +1311,7 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
         anchorEl={addMenuAnchor}
         open={Boolean(addMenuAnchor)}
         onClose={() => { setAddMenuAnchor(null); setAddMenuFolderId(null) }}
+        PaperProps={{ sx: { maxHeight: "70vh", overflow: "auto" } }}
       >
         <MenuItem
           onClick={() => {
@@ -1071,14 +1349,134 @@ export function FolderTree({ wikiId, onFileSelect, selectedFileId, refreshTrigge
         anchorPosition={
           contextMenu ? { top: contextMenu.mouseY, left: contextMenu.mouseX } : undefined
         }
+        PaperProps={{ sx: { maxHeight: "70vh", overflow: "auto" } }}
       >
         <MenuItem onClick={handleRenameFromContext}>Rename</MenuItem>
+        {contextMenu?.type === "folder" && (
+          <MenuItem
+            onClick={handleExportFolderFromContext}
+            disabled={Boolean(exportingFolderId)}
+          >
+            {exportingFolderId === contextMenu.id ? "Exporting…" : "Export folder"}
+          </MenuItem>
+        )}
         {contextMenu?.type === "file" && (
           <MenuItem onClick={handleAddSubPageFromContext}>Add Sub-page</MenuItem>
         )}
         <MenuItem onClick={handleDeleteFromContext} sx={{ color: "error.main" }}>
           Delete
         </MenuItem>
+      </Menu>
+
+      {/* Mobile move menu (replaces drag handle on small screens) */}
+      <Menu
+        anchorEl={mobileMoveAnchor}
+        open={Boolean(mobileMoveAnchor)}
+        onClose={() => {
+          setMobileMoveAnchor(null)
+          setMobileMoveTarget(null)
+        }}
+        anchorOrigin={isMobile ? { vertical: "center", horizontal: "center" } : undefined}
+        transformOrigin={isMobile ? { vertical: "center", horizontal: "center" } : undefined}
+        PaperProps={isMobile ? {
+          sx: {
+            width: "92vw",
+            maxWidth: "92vw",
+            maxHeight: "80vh",
+            borderRadius: 2,
+            p: 0,
+            overflow: "hidden",
+          },
+        } : { sx: { maxHeight: "70vh", overflow: "auto" } }}
+      >
+        {mobileMoveTarget ? (() => {
+          const { type, id } = mobileMoveTarget
+          const isFolderItem = type === "folder"
+          const item = isFolderItem
+            ? folders.find((f) => f.folderId === id)
+            : files.find((f) => f.fileId === id)
+          if (!item) return null
+
+          if (isFolderItem) {
+            // Only allow moving the folder up one level (into its parent’s parent) or into a direct sub-folder
+            const parentFolderId = item.parentFolderId ?? null
+            const grandparentFolderId = parentFolderId
+              ? folderMap[parentFolderId]?.parentFolderId ?? null
+              : null
+            const childFolders = folderMap[id]?.children || []
+
+            return (
+              <Box sx={{ position: "relative", pt: 1, pb: 1 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => {
+                    setMobileMoveAnchor(null)
+                    setMobileMoveTarget(null)
+                  }}
+                  sx={{ position: "absolute", top: 8, right: 8 }}
+                >
+                  <Close fontSize="small" />
+                </IconButton>
+                {parentFolderId !== null && (
+                  <MenuItem onClick={() => handleMobileMove({ folderId: grandparentFolderId })}>
+                    Move up to {grandparentFolderId ? folderMap[grandparentFolderId]?.name || "…" : "root"}
+                  </MenuItem>
+                )}
+
+                {childFolders.length > 0 ? (
+                  <>
+                    <MenuItem disabled>Move into…</MenuItem>
+                    {childFolders.map((f) => (
+                      <MenuItem
+                        key={f.folderId}
+                        onClick={() => handleMobileMove({ folderId: f.folderId })}
+                      >
+                        {f.name}
+                      </MenuItem>
+                    ))}
+                  </>
+                ) : (
+                  <MenuItem disabled>No direct sub-folders</MenuItem>
+                )}
+              </Box>
+            )
+          }
+
+          // File move menu: only allow moving up (out of a parent page or folder) or into direct sub-pages
+          const parentFileId = item.parentFileId ?? null
+          const folderId = item.folderId ?? null
+          const subPages = getSubPages(item.fileId)
+
+          return (
+            <>
+              {parentFileId ? (
+                <MenuItem onClick={() => handleMobileMove({ parentFileId: null })}>
+                  Move out of {files.find((f) => f.fileId === parentFileId)?.name || "parent page"}
+                </MenuItem>
+              ) : folderId ? (
+                <MenuItem onClick={() => handleMobileMove({ folderId: null, parentFileId: null })}>
+                  Move to root
+                </MenuItem>
+              ) : null}
+
+              {subPages.length > 0 ? (
+                <>
+                  <MenuItem disabled>Move into…</MenuItem>
+                  {subPages.map((sub) => (
+                    <MenuItem
+                      key={sub.fileId}
+                      onClick={() => handleMobileMove({ parentFileId: sub.fileId })}
+                    >
+                      {sub.name}
+                    </MenuItem>
+                  ))}
+                </>
+              ) : (
+                <MenuItem disabled>No direct sub-pages</MenuItem>
+              )}
+            </>
+          )
+        })() : null}
       </Menu>
 
       {/* Rename Dialog */}

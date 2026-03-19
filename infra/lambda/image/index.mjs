@@ -2,6 +2,7 @@ import {
     S3Client,
     PutObjectCommand,
     GetObjectCommand,
+    DeleteObjectCommand,
 } from "@aws-sdk/client-s3"
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner"
 import { randomUUID } from "crypto"
@@ -103,6 +104,21 @@ export async function handler(event) {
             )
 
             return response(200, { imageId, presignedUrl })
+        }
+
+        // DELETE /wikis/{wikiId}/images/{imageId} — Remove image from S3
+        if (
+            method === "DELETE" &&
+            path === "/wikis/{wikiId}/images/{imageId}"
+        ) {
+            const s3Key = `wikis/${wikiId}/images/${imageId}.webp`
+            await s3.send(
+                new DeleteObjectCommand({
+                    Bucket: BUCKET_NAME,
+                    Key: s3Key,
+                }),
+            )
+            return response(204, "")
         }
 
         // GET /wikis/{wikiId}/images/{imageId}/download — Download as PNG

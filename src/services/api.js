@@ -98,6 +98,11 @@ class ApiClient {
         })
     }
 
+    async searchUsers(wikiId, query = "") {
+        const q = query ? `?query=${encodeURIComponent(query)}` : ""
+        return this.request(`/wikis/${wikiId}/users${q}`)
+    }
+
     // Folder endpoints
     async getFolders(wikiId) {
         return this.request(`/wikis/${wikiId}/folders`)
@@ -187,6 +192,30 @@ class ApiClient {
 
     async getImageUrl(wikiId, imageId) {
         return this.request(`/wikis/${wikiId}/images/${imageId}`)
+    }
+
+    async deleteImage(wikiId, imageId) {
+        return this.request(`/wikis/${wikiId}/images/${imageId}`, {
+            method: "DELETE",
+        })
+    }
+
+    // Version endpoints
+    async createVersion(wikiId, fileId, content) {
+        return this.request(`/wikis/${wikiId}/files/${fileId}/versions`, {
+            method: "POST",
+            body: JSON.stringify({ content }),
+        })
+    }
+
+    async getVersions(wikiId, fileId) {
+        return this.request(`/wikis/${wikiId}/files/${fileId}/versions`)
+    }
+
+    async getVersion(wikiId, fileId, versionId) {
+        return this.request(
+            `/wikis/${wikiId}/files/${fileId}/versions/${versionId}`,
+        )
     }
 
     // Export endpoints

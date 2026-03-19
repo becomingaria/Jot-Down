@@ -99,11 +99,34 @@ export function Block({
   onImageUrlSet,  // (blockId, url) — set image url directly
   onFileSelect,   // (fileId) — navigate to a subpage
   wikiId,
+  fileId,
+  isOnlyBlock,
 }) {
   const ref = useRef(null)
+  const imageCaptionRef = useRef(null)
   const [showTypeMenu, setShowTypeMenu] = useState(false)
   const [hovered, setHovered] = useState(false)
+  const [imageSize, setImageSize] = useState(null)
   const typeMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (block.type !== BLOCK_TYPES.IMAGE) {
+      setImageSize(null)
+      return
+    }
+
+    if (!fileId || !block.imageUrl) {
+      setImageSize(null)
+      return
+    }
+
+    try {
+      const saved = localStorage.getItem(`jd:image-size:${wikiId}:${fileId}:${block.imageUrl}`)
+      setImageSize(saved ? JSON.parse(saved) : null)
+    } catch {
+      setImageSize(null)
+    }
+  }, [block.type, block.imageUrl, fileId, wikiId])
 
   /* ---- Sync DOM text from React state (only when we gain focus or content
           is changed externally, e.g. after merge/split/slash-select) ---- */
@@ -327,6 +350,35 @@ export function Block({
 
   /* ---- Image blocks ---- */
   if (block.type === BLOCK_TYPES.IMAGE) {
+    const saveImageSize = (size) => {
+      if (!fileId || !block.imageUrl) return
+      try {
+        localStorage.setItem(
+          `jd:image-size:${wikiId}:${fileId}:${block.imageUrl}`,
+          JSON.stringify(size),
+        )
+      } catch { }
+    }
+
+    const clamp = (n, min, max) => Math.max(min, Math.min(max, n))
+
+    const resizeImage = (delta) => {
+      const current = imageSize || { width: null, height: null }
+      const base = current.width || 0
+      const newSize = clamp(base + delta, 64, 2000)
+      const ratio = current.width && current.height ? current.height / current.width : 1
+      const updated = { width: newSize, height: Math.round(newSize * ratio) }
+      setImageSize(updated)
+      saveImageSize(updated)
+    }
+
+    const resetSize = () => {
+      setImageSize(null)
+      if (fileId && block.imageUrl) {
+        try { localStorage.removeItem(`jd:image-size:${wikiId}:${fileId}:${block.imageUrl}`) } catch { }
+      }
+    }
+
     return (
       <div
         className="block-container block-image"
@@ -334,16 +386,59 @@ export function Block({
         tabIndex={0}
         onClick={onFocus}
         onFocus={onFocus}
+        onKeyDown={(e) => {
+          if (e.key === "Backspace" || e.key === "Delete") {
+            // Only delete when the caption isn't focused (to allow editing it)
+            if (document.activeElement !== imageCaptionRef.current) {
+              e.preventDefault()
+              onDeleteBlock?.(block.id)
+            }
+          }
+        }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         {renderPlusButton()}
         {block.imageUrl ? (
           <div className="block-image-wrapper">
-            <img src={block.imageUrl} alt={block.imageCaption || ""} className="block-image-img" />
+            <div className="block-image-toolbar">
+              <button
+                className="block-image-tool"
+                title="Smaller"
+                onClick={(e) => { e.stopPropagation(); resizeImage(-20) }}
+              >
+                −
+              </button>
+              <button
+                className="block-image-tool"
+                title="Larger"
+                onClick={(e) => { e.stopPropagation(); resizeImage(20) }}
+              >
+                +
+              </button>
+              <button
+                className="block-image-tool"
+                title="Reset size"
+                onClick={(e) => { e.stopPropagation(); resetSize() }}
+              >
+                ⟳
+              </button>
+            </div>
+            <img
+              src={block.imageUrl}
+              alt={block.imageCaption || ""}
+              className="block-image-img"
+              style={{
+                width: imageSize?.width ? `${imageSize.width}px` : "auto",
+                height: imageSize?.height ? `${imageSize.height}px` : "auto",
+                maxWidth: "100%",
+                minWidth: 64,
+                minHeight: 64,
+              }}
+            />
             <div
               className="block-image-caption block-editable"
-              ref={ref}
+              ref={(el) => { ref.current = el; imageCaptionRef.current = el }}
               contentEditable
               suppressContentEditableWarning
               data-placeholder="Add a caption…"
@@ -454,7 +549,16 @@ export function Block({
         suppressContentEditableWarning
         spellCheck
         className="block-editable"
-        data-placeholder={placeholderFor(block.type)}
+        data-placeholder={
+          // Show the slash command hint only when:
+          // 1) this is the only block in the page, OR
+          // 2) the user hovers over an empty block
+          block.type === BLOCK_TYPES.PARAGRAPH &&
+            (!block.content || block.content.trim() === "") &&
+            (isOnlyBlock || hovered)
+            ? "Type '/' for commands…"
+            : placeholderFor(block.type)
+        }
         onInput={handleInput}
         onKeyDown={handleKeyDown}
         onBlur={handleBlur}
@@ -492,6 +596,6 @@ function placeholderFor(type) {
     case BLOCK_TYPES.SUBPAGE_LINK:
       return ""
     default:
-      return "Type '/' for commands…"
+      return " "
   }
 }

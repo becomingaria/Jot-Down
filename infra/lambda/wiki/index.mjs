@@ -307,6 +307,33 @@ export async function handler(event) {
             return response(200, { shares })
         }
 
+        // GET /wikis/{wikiId}/users — Search users by email (for share autocomplete)
+        if (method === "GET" && path === "/wikis/{wikiId}/users") {
+            const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)
+            if (!allowed && !isAdmin(user))
+                return response(403, { error: "Forbidden" })
+
+            const query = event.queryStringParameters?.query || ""
+            const filter = query
+                ? `email ^= "${query.replace(/"/g, '"')}"`
+                : undefined
+
+            const result = await cognito.send(
+                new ListUsersCommand({
+                    UserPoolId: USER_POOL_ID,
+                    ...(filter ? { Filter: filter } : {}),
+                    Limit: 25,
+                }),
+            )
+
+            const users = (result.Users || []).map((u) => ({
+                userId: u.Username,
+                email: u.Attributes?.find((a) => a.Name === "email")?.Value,
+            }))
+
+            return response(200, { users })
+        }
+
         // PUT /wikis/{wikiId}/shares/{userId} — Update share access level
         if (method === "PUT" && path === "/wikis/{wikiId}/shares/{userId}") {
             const { allowed, wiki } = await canAccessWiki(user.userId, wikiId)

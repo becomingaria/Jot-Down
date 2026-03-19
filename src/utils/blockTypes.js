@@ -115,6 +115,14 @@ export const SLASH_COMMANDS = [
         keywords: ["divider", "separator", "hr"],
     },
     {
+        id: "lorem",
+        type: BLOCK_TYPES.PARAGRAPH,
+        label: "Lorem Ipsum",
+        description: "Insert placeholder lorem ipsum text",
+        icon: "📄",
+        keywords: ["lorem", "ipsum", "placeholder", "dummy"],
+    },
+    {
         id: "image",
         type: BLOCK_TYPES.IMAGE,
         label: "Image",
@@ -278,6 +286,30 @@ export function markdownToBlocks(markdown) {
         // Divider
         else if (line.match(/^(-{3,}|\*{3,}|_{3,})$/)) {
             blocks.push(createBlock(BLOCK_TYPES.DIVIDER, ""))
+            i++
+        }
+        // Image markdown (e.g. ![alt](https://...))
+        else if (line.match(/^!\[.*\]\(.+\)$/)) {
+            const match = line.match(/^!\[([^\]]*)\]\(([^\)]+)\)$/)
+            if (match) {
+                const [, altText, url] = match
+                const block = createBlock(BLOCK_TYPES.IMAGE, altText)
+                block.imageUrl = url
+                block.imageCaption = altText
+                blocks.push(block)
+            } else {
+                blocks.push(createBlock(BLOCK_TYPES.PARAGRAPH, line))
+            }
+            i++
+        }
+        // Plain image URL
+        else if (
+            line.match(/^https?:\/\/\S+\.(?:png|jpe?g|gif|webp|svg)(\?.*)?$/i)
+        ) {
+            const url = line.trim()
+            const block = createBlock(BLOCK_TYPES.IMAGE, "")
+            block.imageUrl = url
+            blocks.push(block)
             i++
         }
         // Paragraph

@@ -2,13 +2,18 @@ import { useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   Box,
+  Paper,
   AppBar,
   Toolbar,
   Typography,
   IconButton,
   Drawer,
+  SwipeableDrawer,
   Button,
+  useTheme,
+  useMediaQuery,
 } from "@mui/material"
+import logo from "../../assets/wikijot_transparent.png"
 import { ArrowBack, Menu as MenuIcon, Logout, AdminPanelSettings } from "@mui/icons-material"
 import { FolderTree } from "../folder/FolderTree"
 import { Canister } from "../editor/Canister"
@@ -24,6 +29,10 @@ const DRAWER_WIDTH = 280
 const ADMIN_DRAWER_WIDTH = 340
 
 export function WikiView() {
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down("md"))
+  const iOS = typeof navigator !== "undefined" && /iPad|iPhone|iPod/.test(navigator.userAgent)
+
   const { wikiId, '*': splat } = useParams()
   const selectedFileId = fileIdFromSplat(splat)
   const navigate = useNavigate()
@@ -31,9 +40,12 @@ export function WikiView() {
   const { signOut, user, isAdmin } = useAuth()
   const { files, refetch: refetchFiles } = useFiles(wikiId)
   const { folders } = useFolders(wikiId)
-  const [drawerOpen, setDrawerOpen] = useState(true)
+  const [drawerOpen, setDrawerOpen] = useState(!isMobile)
   const [adminOpen, setAdminOpen] = useState(false)
   const [fileTreeRefresh, setFileTreeRefresh] = useState(0)
+
+  // Debug layout overlays (set to false to disable)
+  const debugLayout = false
 
   // Navigate to a file — updates the URL (back button, bookmarks, deep links all work)
   const navigateToFile = (id) => {
@@ -54,82 +66,138 @@ export function WikiView() {
   const selectedFileType = selectedFile?.fileType || "page"
 
   return (
-    <Box sx={{ display: "flex", height: "100vh" }}>
+    <Box sx={{ display: isMobile ? "block" : "flex", width: "100vw", minWidth: 0, minHeight: "200vh", overflow: "auto" }}>
       {/* App Bar */}
-      <AppBar position="fixed" sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}>
-        <Toolbar>
-          <IconButton
-            color="inherit"
-            onClick={() => navigate("/wikis")}
-            edge="start"
-            sx={{ mr: 2 }}
-          >
-            <ArrowBack />
-          </IconButton>
-          <IconButton
-            color="inherit"
-            onClick={() => setDrawerOpen(!drawerOpen)}
-            edge="start"
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
-          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
-            {wiki?.name || "Loading..."}
-          </Typography>
-          {isAdmin && (
+      <AppBar
+        position="fixed"
+        sx={{
+          zIndex: (theme) => theme.zIndex.drawer + 1,
+          ...(debugLayout ? { outline: "2px solid rgba(33, 150, 243, 0.8)" } : {}),
+        }}
+      >
+        <Toolbar sx={{ flexDirection: "column", alignItems: "stretch", py: 1 }}>
+          {/* Top row: logo + wiki name */}
+          <Box sx={{ display: "flex", alignItems: "center", width: "100%" }}>
+            <Box
+              component="img"
+              src={logo}
+              alt="WikiJot"
+              onClick={() => navigate("/wikis")}
+              sx={{ height: 32, mr: 2, cursor: "pointer" }}
+            />
+            <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
+              WikiJot {wiki?.name ? `• ${wiki.name}` : "Loading..."}
+            </Typography>
+            {!isMobile && isAdmin && (
+              <IconButton
+                color="inherit"
+                onClick={() => setAdminOpen(!adminOpen)}
+                title="Admin Panel"
+                sx={{ mr: 1 }}
+              >
+                <AdminPanelSettings />
+              </IconButton>
+            )}
+            {!isMobile && (
+              <Typography variant="body2" sx={{ mr: 2 }}>
+                {user?.email}
+              </Typography>
+            )}
+            <IconButton color="inherit" onClick={signOut}>
+              <Logout />
+            </IconButton>
+          </Box>
+
+          {/* Second row: back + menu */}
+          <Box sx={{ display: "flex", alignItems: "center", width: "100%", mt: 1 }}>
             <IconButton
               color="inherit"
-              onClick={() => setAdminOpen(!adminOpen)}
-              title="Admin Panel"
+              onClick={() => navigate("/wikis")}
+              edge="start"
               sx={{ mr: 1 }}
             >
-              <AdminPanelSettings />
+              <ArrowBack />
             </IconButton>
-          )}
-          <Typography variant="body2" sx={{ mr: 2 }}>
-            {user?.email}
-          </Typography>
-          <IconButton color="inherit" onClick={signOut}>
-            <Logout />
-          </IconButton>
+            <IconButton
+              color="inherit"
+              onClick={() => setDrawerOpen(!drawerOpen)}
+              edge="start"
+            >
+              <MenuIcon />
+            </IconButton>
+          </Box>
         </Toolbar>
       </AppBar>
 
       {/* Sidebar */}
-      <Drawer
-        variant="persistent"
+      <SwipeableDrawer
+        variant={isMobile ? "temporary" : "persistent"}
         open={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onOpen={() => setDrawerOpen(true)}
+        disableBackdropTransition={!iOS}
+        disableDiscovery={iOS}
+        ModalProps={{ keepMounted: true }}
         sx={{
-          width: DRAWER_WIDTH,
+          display: isMobile && !drawerOpen ? "none" : "block",
+          width: isMobile ? 0 : DRAWER_WIDTH,
           flexShrink: 0,
+          ...(
+            debugLayout
+              ? {
+                outline: "2px dashed rgba(76, 175, 80, 0.8)",
+                backgroundColor: "rgba(76, 175, 80, 0.08)",
+              }
+              : {}
+          ),
           "& .MuiDrawer-paper": {
-            width: DRAWER_WIDTH,
+            width: isMobile ? "100vw" : DRAWER_WIDTH,
+            maxWidth: isMobile ? "100vw" : DRAWER_WIDTH,
             boxSizing: "border-box",
-            mt: 8,
+            mt: 14,
+            borderRadius: isMobile ? 0 : undefined,
+            bgcolor: "background.paper",
+            boxShadow: (theme) => theme.shadows[8],
           },
         }}
       >
         <FolderTree
           wikiId={wikiId}
-          onFileSelect={navigateToFile}
+          isMobile={isMobile}
+          onFileSelect={(id) => {
+            navigateToFile(id)
+            if (isMobile) setDrawerOpen(false)
+          }}
           selectedFileId={selectedFileId}
           refreshTrigger={fileTreeRefresh}
         />
-      </Drawer>
+      </SwipeableDrawer>
 
       {/* Main Content */}
       <Box
         component="main"
         sx={{
-          flexGrow: 1,
-          mt: 8,
-          ml: drawerOpen ? 0 : `-${DRAWER_WIDTH}px`,
+          flex: 1,
+          minWidth: 0,
+          display: "flex",
+          flexDirection: "column",
+          mt: 14,
+          ml: isMobile ? 0 : drawerOpen ? 0 : `-${DRAWER_WIDTH}px`,
           transition: (theme) =>
             theme.transitions.create("margin", {
               easing: theme.transitions.easing.sharp,
               duration: theme.transitions.duration.leavingScreen,
             }),
+          overflow: "hidden",
+          bgcolor: "background.default",
+          ...(
+            debugLayout
+              ? {
+                outline: "2px dashed rgba(255, 152, 0, 0.8)",
+                backgroundColor: "rgba(255, 152, 0, 0.06)",
+              }
+              : {}
+          ),
         }}
       >
         {selectedFileId ? (
@@ -139,17 +207,24 @@ export function WikiView() {
             <Canister wikiId={wikiId} fileId={selectedFileId} onFileSelect={navigateToFile} onRename={handleRename} />
           )
         ) : (
-          <Box
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-            }}
-          >
-            <Typography variant="h6" color="text.secondary">
-              Select a file to edit or create a new one
-            </Typography>
+          <Box sx={{ flexGrow: 1, overflow: "auto", width: "100%" }}>
+            <Paper sx={{ p: 3, minHeight: "100%", width: "100%" }}>
+              <Box
+                sx={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: "100%",
+                  textAlign: "center",
+                  width: "100%",
+                }}
+              >
+                <Typography variant="h6" color="text.secondary" sx={{ maxWidth: 520 }}>
+                  Select a file to edit or create a new one
+                </Typography>
+              </Box>
+            </Paper>
           </Box>
         )}
       </Box>
@@ -163,10 +238,18 @@ export function WikiView() {
           sx={{
             width: ADMIN_DRAWER_WIDTH,
             flexShrink: 0,
+            ...(
+              debugLayout
+                ? {
+                  outline: "2px dashed rgba(156, 39, 176, 0.8)",
+                  backgroundColor: "rgba(156, 39, 176, 0.06)",
+                }
+                : {}
+            ),
             "& .MuiDrawer-paper": {
               width: ADMIN_DRAWER_WIDTH,
               boxSizing: "border-box",
-              mt: 8,
+              mt: 14,
             },
           }}
         >
