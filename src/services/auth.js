@@ -80,7 +80,11 @@ export const authService = {
                         "sub",
                     ])
                     for (const [k, v] of Object.entries(userAttributes || {})) {
-                        if (!forbidden.has(k) && v !== undefined && v !== null) {
+                        if (
+                            !forbidden.has(k) &&
+                            v !== undefined &&
+                            v !== null
+                        ) {
                             allowed[k] = v
                         }
                     }
@@ -99,11 +103,16 @@ export const authService = {
                 reject(new Error("No pending password challenge"))
                 return
             }
-            const challengeData = pendingUserAttributes && Object.keys(pendingUserAttributes).length ? pendingUserAttributes : {}
+            const challengeData =
+                pendingUserAttributes &&
+                Object.keys(pendingUserAttributes).length
+                    ? pendingUserAttributes
+                    : {}
             pendingCognitoUser.completeNewPasswordChallenge(
                 newPassword,
                 challengeData,
-                {                    onSuccess: (result) => {
+                {
+                    onSuccess: (result) => {
                         pendingCognitoUser = null
                         pendingUserAttributes = null
                         resolve({

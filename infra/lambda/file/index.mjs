@@ -13,16 +13,95 @@ import {
     GetObjectCommand,
     DeleteObjectCommand,
 } from "@aws-sdk/client-s3"
+import {
+    ApiGatewayManagementApiClient,
+    PostToConnectionCommand,
+} from "@aws-sdk/client-apigatewaymanagementapi"
 import { randomUUID } from "crypto"
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}))
 const s3 = new S3Client({})
 const TABLE_NAME = process.env.TABLE_NAME
 const BUCKET_NAME = process.env.BUCKET_NAME
+const WS_ENDPOINT = process.env.WS_ENDPOINT
 const MAX_VERSIONS_PER_FILE = parseInt(
     process.env.MAX_VERSIONS_PER_FILE || "10",
     10,
 )
+
+/**
+ * Broadcast a file update event to all WebSocket connections subscribed to
+ * the given wikiId/fileId.  Stale connections (HTTP 410) are deleted silently.
+ */
+async function broadcastFileUpdate(wikiId, fileId, payload) {
+    if (!WS_ENDPOINT) return
+    const wsClient = new ApiGatewayManagementApiClient({
+        endpoint: WS_ENDPOINT,
+    })
+
+    let connections
+    try {
+        const result = await ddb.send(
+            new QueryCommand({
+                TableName: TABLE_NAME,
+                KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+                ExpressionAttributeValues: {
+                    ":pk": `WSFILE#${wikiId}#${fileId}`,
+                    ":sk": "CONN#",
+                },
+            }),
+        )
+        connections = result.Items || []
+    } catch (err) {
+        console.warn("broadcastFileUpdate: DDB query failed", err.message)
+        return
+    }
+
+    const data = Buffer.from(JSON.stringify(payload))
+    await Promise.all(
+        connections.map(async ({ connectionId }) => {
+            try {
+                await wsClient.send(
+                    new PostToConnectionCommand({
+                        ConnectionId: connectionId,
+                        Data: data,
+                    }),
+                )
+            } catch (err) {
+                if (err.$metadata?.httpStatusCode === 410) {
+                    // Stale — clean up both connection records
+                    await ddb
+                        .send(
+                            new DeleteCommand({
+                                TableName: TABLE_NAME,
+                                Key: {
+                                    PK: `WSFILE#${wikiId}#${fileId}`,
+                                    SK: `CONN#${connectionId}`,
+                                },
+                            }),
+                        )
+                        .catch(() => {})
+                    await ddb
+                        .send(
+                            new DeleteCommand({
+                                TableName: TABLE_NAME,
+                                Key: {
+                                    PK: `WSCONN#${connectionId}`,
+                                    SK: "META",
+                                },
+                            }),
+                        )
+                        .catch(() => {})
+                } else {
+                    console.warn(
+                        `broadcastFileUpdate: send failed conn=${connectionId}`,
+                        err.message,
+                    )
+                }
+            }
+        }),
+    )
+}
 
 function response(statusCode, body, extraHeaders = {}) {
     return {
@@ -302,6 +381,7 @@ export async function handler(event) {
                 name: body.name || "untitled.md",
                 s3Key,
                 size: Buffer.byteLength(content, "utf-8"),
+                rev: randomUUID(),
                 createdAt: now,
                 updatedAt: now,
             }
@@ -388,6 +468,7 @@ export async function handler(event) {
                 name: fileName,
                 s3Key,
                 size: Buffer.byteLength(content, "utf-8"),
+                rev: randomUUID(),
                 createdAt: now,
                 updatedAt: now,
             }
@@ -464,6 +545,7 @@ export async function handler(event) {
                 parentFileId: metaResult.Item.parentFileId || null,
                 fileType: metaResult.Item.fileType || "page",
                 content,
+                rev: metaResult.Item.rev || null,
                 size: metaResult.Item.size,
                 createdAt: metaResult.Item.createdAt,
                 updatedAt: metaResult.Item.updatedAt,
@@ -518,6 +600,11 @@ export async function handler(event) {
                 exprValues[":pfid"] = body.parentFileId
             }
 
+            // Bump the revision counter on every content/metadata update
+            const newRev = randomUUID()
+            updateExprParts.push("rev = :rev")
+            exprValues[":rev"] = newRev
+
             await ddb.send(
                 new UpdateCommand({
                     TableName: TABLE_NAME,
@@ -530,7 +617,17 @@ export async function handler(event) {
                 }),
             )
 
-            return response(200, { updated: true })
+            // Broadcast update to all WebSocket subscribers (fire-and-forget)
+            broadcastFileUpdate(wikiId, fileId, {
+                type: "file.update",
+                wikiId,
+                fileId,
+                rev: newRev,
+                updatedAt: now,
+                updatedBy: user.email,
+            }).catch((err) => console.warn("WS broadcast failed", err.message))
+
+            return response(200, { updated: true, rev: newRev })
         }
 
         // --- VERSION HISTORY ---

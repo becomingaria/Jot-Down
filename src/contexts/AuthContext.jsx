@@ -7,6 +7,7 @@ const AuthContext = createContext(null)
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null)
   const [idToken, setIdToken] = useState(null)
+  const [accessToken, setAccessToken] = useState(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -16,6 +17,7 @@ export function AuthProvider({ children }) {
       .then((session) => {
         setUser(session.user)
         setIdToken(session.idToken)
+        setAccessToken(session.accessToken || null)
         apiClient.setIdToken(session.idToken)
         setLoading(false)
       })
@@ -28,6 +30,7 @@ export function AuthProvider({ children }) {
     const session = await authService.signIn(email, password)
     setUser(session.user)
     setIdToken(session.idToken)
+    setAccessToken(session.accessToken || null)
     apiClient.setIdToken(session.idToken)
     return session
   }
@@ -36,12 +39,14 @@ export function AuthProvider({ children }) {
     authService.signOut()
     setUser(null)
     setIdToken(null)
+    setAccessToken(null)
     apiClient.setIdToken(null)
   }
 
   const value = {
     user,
     idToken,
+    accessToken,
     loading,
     signIn,
     signOut,

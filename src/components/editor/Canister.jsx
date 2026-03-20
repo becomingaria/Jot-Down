@@ -20,11 +20,12 @@ import {
   Stack,
   CircularProgress,
 } from "@mui/material"
-import { Save, Visibility, Edit, History, Download, Close, CheckCircle } from "@mui/icons-material"
+import { Save, Visibility, Edit, History, Download, Close, CheckCircle, WifiOff, Wifi } from "@mui/icons-material"
 import { processMarkdown, extractCSVBlocks } from "../../utils/markdown"
 import { CsvTable } from "./CsvTable"
 import { BlockEditor } from "./BlockEditor"
 import { useFile } from "../../hooks/useFile"
+import { useCollaboration } from "../../hooks/useCollaboration"
 import { apiClient } from "../../services/api"
 import { useAuth } from "../../contexts/AuthContext"
 
@@ -116,14 +117,14 @@ function relativeTime(isoString) {
 
 export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const { file, updateFile, saveContent } = useFile(wikiId, fileId)
-  const { idToken } = useAuth()
+  const { idToken, accessToken } = useAuth()
   const [content, setContent] = useState("")
   const [isPreview, setIsPreview] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
   const [saving, setSaving] = useState(false)
   const saveTimeoutRef = useRef(null)
   // Debounced save-status label — only appears after 1.5 s of inactivity
-  // so it doesn't flash on every keystroke.
+  // so it doesn’t flash on every keystroke.
   const [saveStatus, setSaveStatus] = useState(null) // null | 'unsaved' | 'saving' | 'saved'
   const [statusMessage, setStatusMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
@@ -131,6 +132,12 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const statusTimerRef = useRef(null)
   const remoteSyncTimerRef = useRef(null)
   const [exportAnchor, setExportAnchor] = useState(null)
+
+  // Conflict resolution state
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false)
+  const [conflictRemoteContent, setConflictRemoteContent] = useState("")
+  const [conflictRemoteRev, setConflictRemoteRev] = useState(null)
+  const lastSyncedRevRef = useRef(null)
 
   // Editable heading state
   const [editingName, setEditingName] = useState(false)
@@ -210,10 +217,12 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     loadServerVersions()
   }, [wikiId, fileId, loadServerVersions])
 
-  // Live sync / collaboration placeholder (poll every 4 seconds). In a production
-  // system, replace with WebSocket or real-time backend subscription.
+  // Live sync / collaboration — replaced by WebSocket hook (useCollaboration).
+  // The 4-second polling below is kept as a fallback when VITE_WS_URL is not
+  // configured (e.g. local dev without the infra deployed).
   useEffect(() => {
     if (!wikiId || !fileId) return
+    if (import.meta.env.VITE_WS_URL) return // WS hook handles this
     let isActive = true
 
     const liveSyncTick = async () => {
@@ -228,7 +237,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           setHasChanges(false)
           setSaveStatus("saved")
           setStatusMessage("Live update received")
-          setRemoteSyncMessage("Live update from collaborator")
+          setRemoteSyncMessage("☁ Updated by collaborator")
 
           if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
           remoteSyncTimerRef.current = setTimeout(() => {
@@ -259,6 +268,49 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const updateFileRef = useRef(updateFile)       // stable ref to latest updateFile fn
   const saveContentRef = useRef(saveContent)     // stable ref to fire-and-forget save
 
+  // ── Real-time collaboration via WebSocket ────────────────────────────────
+  const { connectionStatus, remoteUpdate, clearRemoteUpdate } = useCollaboration({
+    wikiId,
+    fileId,
+    accessToken,
+  })
+
+  // When a remote file.update arrives: apply directly if no local unsaved
+  // changes, otherwise surface a conflict resolution dialog.
+  useEffect(() => {
+    if (!remoteUpdate) return
+    clearRemoteUpdate()
+
+    const incoming = remoteUpdate
+
+    // Fetch the full updated content from the server
+    apiClient.getFile(wikiId, fileId).then((latest) => {
+      if (!latest?.content) return
+
+      const hasLocalChanges = contentRef.current !== fileContentRef.current
+
+      if (!hasLocalChanges) {
+        // No unsaved edits — apply silently
+        setContent(latest.content)
+        contentRef.current = latest.content
+        fileContentRef.current = latest.content
+        lastSyncedRevRef.current = incoming.rev
+        setHasChanges(false)
+        setSaveStatus("saved")
+        setStatusMessage("Live update received")
+        setRemoteSyncMessage(`☁ Updated by ${incoming.updatedBy || "collaborator"}`)
+        if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
+        remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3500)
+        setEditorKey((k) => k + 1)
+      } else {
+        // Local unsaved changes — ask the user what to do
+        setConflictRemoteContent(latest.content)
+        setConflictRemoteRev(incoming.rev)
+        setConflictDialogOpen(true)
+      }
+    }).catch((err) => console.warn("WS: failed to fetch updated content", err))
+  }, [remoteUpdate]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Ensure API client has valid auth token for version endpoints
   useEffect(() => {
     if (idToken) apiClient.setIdToken(idToken)
@@ -268,6 +320,11 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   useEffect(() => { fileContentRef.current = file?.content }, [file?.content])
   useEffect(() => { updateFileRef.current = updateFile }, [updateFile])
   useEffect(() => { saveContentRef.current = saveContent }, [saveContent])
+
+  // Track the rev that was current when this file was last loaded/synced
+  useEffect(() => {
+    if (file?.rev) lastSyncedRevRef.current = file.rev
+  }, [file?.rev])
 
   const createServerVersion = useCallback(
     async (content, label = "Checkpoint") => {
@@ -756,13 +813,20 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           >
             {remoteSyncMessage ||
               (saveStatus === 'saving'
-                ? 'Autosaving…'
+                ? 'Autosaving\u2026'
                 : saveStatus === 'saved'
-                ? 'Saved'
-                : saveStatus === 'unsaved'
-                ? 'Unsaved'
-                : '')}
+                  ? 'Saved'
+                  : saveStatus === 'unsaved'
+                    ? 'Unsaved'
+                    : '')}
           </Typography>
+          {import.meta.env.VITE_WS_URL && (
+            <Tooltip title={connectionStatus === 'open' ? 'Live collaboration active' : 'Reconnecting\u2026'}>
+              {connectionStatus === 'open'
+                ? <Wifi sx={{ fontSize: 16, color: 'success.main', opacity: 0.8 }} />
+                : <WifiOff sx={{ fontSize: 16, color: 'text.disabled', opacity: 0.5 }} />}
+            </Tooltip>
+          )}
         </Box>
         <Tooltip title={versions.length === 0 ? "No versions yet — save to create one" : `${versions.length} saved version${versions.length !== 1 ? "s" : ""}`}>
           <span>
@@ -889,6 +953,63 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           </DialogContent>
           <DialogActions>
             <Button onClick={handleCloseDiffDialog}>Close</Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Conflict resolution dialog — shown when a remote update arrives while
+            the user has local unsaved changes. */}
+        <Dialog open={conflictDialogOpen} maxWidth="sm" fullWidth>
+          <DialogTitle>Conflict Detected</DialogTitle>
+          <DialogContent>
+            <Typography variant="body2" gutterBottom>
+              A collaborator saved changes to this file while you had unsaved edits.
+              Choose how to resolve the conflict:
+            </Typography>
+            <Stack spacing={1} sx={{ mt: 1 }}>
+              <Box sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+                <Typography variant="caption" color="text.secondary" fontWeight={600}>YOUR version</Typography>
+                <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.75rem", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto", mt: 0.5 }}>
+                  {contentRef.current?.slice(0, 400)}{contentRef.current?.length > 400 ? "…" : ""}
+                </Typography>
+              </Box>
+              <Box sx={{ p: 1.5, border: "1px solid", borderColor: "primary.light", borderRadius: 1 }}>
+                <Typography variant="caption" color="primary" fontWeight={600}>THEIRS</Typography>
+                <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.75rem", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto", mt: 0.5 }}>
+                  {conflictRemoteContent?.slice(0, 400)}{conflictRemoteContent?.length > 400 ? "…" : ""}
+                </Typography>
+              </Box>
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button
+              onClick={() => {
+                // Keep mine — discard remote, re-save local
+                setConflictDialogOpen(false)
+                fileContentRef.current = conflictRemoteContent // avoid re-prompting
+                lastSyncedRevRef.current = conflictRemoteRev
+                doSave(contentRef.current)
+              }}
+            >
+              Keep mine
+            </Button>
+            <Button
+              color="primary"
+              variant="contained"
+              onClick={() => {
+                // Accept theirs — overwrite local with remote
+                setContent(conflictRemoteContent)
+                contentRef.current = conflictRemoteContent
+                fileContentRef.current = conflictRemoteContent
+                lastSyncedRevRef.current = conflictRemoteRev
+                setHasChanges(false)
+                setSaveStatus("saved")
+                setStatusMessage("Accepted remote version")
+                setEditorKey((k) => k + 1)
+                setConflictDialogOpen(false)
+              }}
+            >
+              Accept theirs
+            </Button>
           </DialogActions>
         </Dialog>
 

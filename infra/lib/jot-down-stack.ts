@@ -3,6 +3,7 @@ import { Construct } from "constructs"
 import { StorageConstruct } from "./constructs/storage"
 import { AuthConstruct } from "./constructs/auth"
 import { ApiConstruct } from "./constructs/api"
+import { WebSocketConstruct } from "./constructs/websocket"
 
 export class JotDownStack extends cdk.Stack {
     constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -24,6 +25,15 @@ export class JotDownStack extends cdk.Stack {
             table: storage.table,
             bucket: storage.bucket,
         })
+
+        // WebSocket: real-time collaboration
+        const ws = new WebSocketConstruct(this, "WebSocket", {
+            table: storage.table,
+        })
+
+        // Grant the file handler permission to broadcast via WebSocket
+        // and let it read/write the connection records in DynamoDB
+        ws.grantBroadcastTo(api.fileHandler)
 
         // --- Outputs ---
         new cdk.CfnOutput(this, "ApiUrl", {
@@ -54,6 +64,12 @@ export class JotDownStack extends cdk.Stack {
             value: storage.table.tableName,
             description: "DynamoDB Table Name",
             exportName: "JotDownTableName",
+        })
+
+        new cdk.CfnOutput(this, "WsUrl", {
+            value: ws.wsUrl,
+            description: "WebSocket API URL (set VITE_WS_URL in Netlify env)",
+            exportName: "JotDownWsUrl",
         })
     }
 }

@@ -437,7 +437,8 @@ export async function handler(event) {
             if (!isAdmin(user))
                 return response(403, { error: "Only admins can create users" })
 
-            const tempPassword = body.temporaryPassword || generateTempPassword()
+            const tempPassword =
+                body.temporaryPassword || generateTempPassword()
 
             await cognito.send(
                 new AdminCreateUserCommand({

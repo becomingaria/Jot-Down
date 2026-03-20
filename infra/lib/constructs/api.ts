@@ -15,6 +15,7 @@ export interface ApiConstructProps {
 
 export class ApiConstruct extends Construct {
     public readonly api: apigateway.RestApi
+    public readonly fileHandler: lambda.Function
 
     constructor(scope: Construct, id: string, props: ApiConstructProps) {
         super(scope, id)
@@ -51,7 +52,7 @@ export class ApiConstruct extends Construct {
             ),
         } as lambda.FunctionProps)
 
-        const fileHandler = new lambda.Function(this, "FileHandler", {
+        this.fileHandler = new lambda.Function(this, "FileHandler", {
             ...lambdaDefaults,
             functionName: "jot-down-file",
             handler: "index.handler",
@@ -84,11 +85,11 @@ export class ApiConstruct extends Construct {
 
         // Grant permissions
         table.grantReadWriteData(wikiHandler)
-        table.grantReadWriteData(fileHandler)
+        table.grantReadWriteData(this.fileHandler)
         table.grantReadData(imageHandler)
         table.grantReadData(exportHandler)
 
-        bucket.grantReadWrite(fileHandler)
+        bucket.grantReadWrite(this.fileHandler)
         bucket.grantReadWrite(imageHandler)
         bucket.grantRead(exportHandler)
 
@@ -236,12 +237,12 @@ export class ApiConstruct extends Construct {
         const folders = wiki.addResource("folders")
         folders.addMethod(
             "GET",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         folders.addMethod(
             "POST",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
@@ -249,17 +250,17 @@ export class ApiConstruct extends Construct {
         const folder = folders.addResource("{folderId}")
         folder.addMethod(
             "GET",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         folder.addMethod(
             "PUT",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         folder.addMethod(
             "DELETE",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
@@ -275,12 +276,12 @@ export class ApiConstruct extends Construct {
         const files = wiki.addResource("files")
         files.addMethod(
             "GET",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         files.addMethod(
             "POST",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
@@ -288,7 +289,7 @@ export class ApiConstruct extends Construct {
         const fileImport = files.addResource("import")
         fileImport.addMethod(
             "POST",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
@@ -296,17 +297,17 @@ export class ApiConstruct extends Construct {
         const file = files.addResource("{fileId}")
         file.addMethod(
             "GET",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         file.addMethod(
             "PUT",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         file.addMethod(
             "DELETE",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
@@ -314,12 +315,12 @@ export class ApiConstruct extends Construct {
         const versions = file.addResource("versions")
         versions.addMethod(
             "GET",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
         versions.addMethod(
             "POST",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
@@ -327,7 +328,7 @@ export class ApiConstruct extends Construct {
         const version = versions.addResource("{versionId}")
         version.addMethod(
             "GET",
-            new apigateway.LambdaIntegration(fileHandler),
+            new apigateway.LambdaIntegration(this.fileHandler),
             authMethodOptions,
         )
 
