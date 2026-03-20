@@ -127,7 +127,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const [saveStatus, setSaveStatus] = useState(null) // null | 'unsaved' | 'saving' | 'saved'
   const [statusMessage, setStatusMessage] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [remoteSyncMessage, setRemoteSyncMessage] = useState("")
   const statusTimerRef = useRef(null)
+  const remoteSyncTimerRef = useRef(null)
   const [exportAnchor, setExportAnchor] = useState(null)
 
   // Editable heading state
@@ -207,6 +209,48 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     loadServerVersions()
   }, [wikiId, fileId, loadServerVersions])
+
+  // Live sync / collaboration placeholder (poll every 4 seconds). In a production
+  // system, replace with WebSocket or real-time backend subscription.
+  useEffect(() => {
+    if (!wikiId || !fileId) return
+    let isActive = true
+
+    const liveSyncTick = async () => {
+      if (!isActive || saveTimeoutRef.current) return
+      try {
+        const latest = await apiClient.getFile(wikiId, fileId)
+        if (!latest?.content) return
+
+        if (latest.content !== contentRef.current) {
+          setContent(latest.content)
+          contentRef.current = latest.content
+          setHasChanges(false)
+          setSaveStatus("saved")
+          setStatusMessage("Live update received")
+          setRemoteSyncMessage("Live update from collaborator")
+
+          if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
+          remoteSyncTimerRef.current = setTimeout(() => {
+            setRemoteSyncMessage("")
+          }, 3000)
+        }
+      } catch (err) {
+        console.warn("Live sync failed", err)
+      }
+    }
+
+    const intervalId = setInterval(liveSyncTick, 4000)
+
+    // Do one immediate check when the file is opened.
+    liveSyncTick()
+
+    return () => {
+      isActive = false
+      clearInterval(intervalId)
+      if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
+    }
+  }, [wikiId, fileId])
 
   // Refs to avoid stale closures in auto-save timer
   const contentRef = useRef(content)
@@ -694,10 +738,31 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             {file.name}
           </Typography>
         )}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 220 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 220, gap: 1 }}>
           {isSaving && (
             <Box className="loader" sx={{ opacity: 0.85 }} />
           )}
+          <Typography
+            variant="body2"
+            sx={{
+              minWidth: 90,
+              textAlign: 'center',
+              opacity: isSaving || saveStatus ? 1 : 0.7,
+              transition: 'opacity 150ms ease',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+            }}
+          >
+            {remoteSyncMessage ||
+              (saveStatus === 'saving'
+                ? 'Autosaving…'
+                : saveStatus === 'saved'
+                ? 'Saved'
+                : saveStatus === 'unsaved'
+                ? 'Unsaved'
+                : '')}
+          </Typography>
         </Box>
         <Tooltip title={versions.length === 0 ? "No versions yet — save to create one" : `${versions.length} saved version${versions.length !== 1 ? "s" : ""}`}>
           <span>
@@ -715,7 +780,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           anchor="right"
           open={versionsOpen}
           onClose={() => setVersionsOpen(false)}
-          PaperProps={{ sx: { width: 300, mt: 8, height: 'calc(100vh - 8rem)' } }}
+          PaperProps={{ sx: { width: 300, mt: 10, height: 'calc(100vh - 8rem)' } }}
         >
           <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h6">Version History</Typography>

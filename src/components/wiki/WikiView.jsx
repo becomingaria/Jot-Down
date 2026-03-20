@@ -66,7 +66,7 @@ export function WikiView() {
   const selectedFileType = selectedFile?.fileType || "page"
 
   return (
-    <Box sx={{ display: isMobile ? "block" : "flex", width: "100vw", minWidth: 0, minHeight: "200vh", overflow: "auto" }}>
+    <Box sx={{ display: isMobile ? "block" : "flex", width: isMobile ? "calc(100vw - 10px)" : "100vw", minWidth: 0, minHeight: "200vh", overflow: "auto", px: isMobile ? 0.5 : 0 }}>
       {/* App Bar */}
       <AppBar
         position="fixed"
