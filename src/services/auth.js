@@ -70,10 +70,9 @@ export const authService = {
                 },
                 newPasswordRequired: (userAttributes) => {
                     console.info("Cognito newPasswordRequired challenge")
-                    // On this path, we do not change email or other provided attributes.
-                    // Keep only fields needed for the challenge response.
+                    // Keep the user object but do not submit email or other fixed attributes.
                     pendingCognitoUser = cognitoUser
-                    pendingUserAttributes = {}
+                    pendingUserAttributes = null
                     reject({ code: "NewPasswordRequired", userAttributes })
                 },
             })
@@ -87,9 +86,10 @@ export const authService = {
                 reject(new Error("No pending password challenge"))
                 return
             }
+            const challengeData = pendingUserAttributes || undefined
             pendingCognitoUser.completeNewPasswordChallenge(
                 newPassword,
-                pendingUserAttributes || {},
+                challengeData,
                 {
                     onSuccess: (result) => {
                         pendingCognitoUser = null
