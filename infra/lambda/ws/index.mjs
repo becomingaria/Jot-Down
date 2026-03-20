@@ -214,6 +214,67 @@ async function handleSubscribe(event) {
     return { statusCode: 200, body: "OK" }
 }
 
+// ── broadcast action — client sends content on each keystroke ────────────────
+async function handleBroadcast(event) {
+    const connectionId = event.requestContext.connectionId
+    const body = JSON.parse(event.body || "{}")
+    const { wikiId, fileId, content, fromEmail } = body
+
+    if (!wikiId || !fileId || content === undefined) {
+        return { statusCode: 400, body: "broadcast requires wikiId, fileId, content" }
+    }
+
+    let connections
+    try {
+        const result = await ddb.send(
+            new QueryCommand({
+                TableName: TABLE_NAME,
+                KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+                ExpressionAttributeValues: {
+                    ":pk": `WSFILE#${wikiId}#${fileId}`,
+                    ":sk": "CONN#",
+                },
+            }),
+        )
+        connections = result.Items || []
+    } catch (err) {
+        console.warn("handleBroadcast: DDB query failed", err.message)
+        return { statusCode: 500, body: "Internal error" }
+    }
+
+    const payload = Buffer.from(
+        JSON.stringify({ type: "file.content", wikiId, fileId, content, fromEmail }),
+    )
+    const client = mgmtClient(event)
+
+    await Promise.all(
+        connections
+            .filter((c) => c.connectionId !== connectionId)
+            .map(async ({ connectionId: connId }) => {
+                try {
+                    await client.send(
+                        new PostToConnectionCommand({ ConnectionId: connId, Data: payload }),
+                    )
+                } catch (err) {
+                    if (err.$metadata?.httpStatusCode === 410) {
+                        await ddb.send(new DeleteCommand({
+                            TableName: TABLE_NAME,
+                            Key: { PK: `WSFILE#${wikiId}#${fileId}`, SK: `CONN#${connId}` },
+                        })).catch(() => {})
+                        await ddb.send(new DeleteCommand({
+                            TableName: TABLE_NAME,
+                            Key: { PK: `WSCONN#${connId}`, SK: "META" },
+                        })).catch(() => {})
+                    } else {
+                        console.warn(`handleBroadcast: send failed conn=${connId}`, err.message)
+                    }
+                }
+            }),
+    )
+
+    return { statusCode: 200, body: "OK" }
+}
+
 // ── ping / keep-alive ─────────────────────────────────────────────────────────
 async function handlePing(event) {
     const connectionId = event.requestContext.connectionId
@@ -262,6 +323,8 @@ export async function handler(event) {
             switch (body.action) {
                 case "subscribe":
                     return handleSubscribe(event)
+                case "broadcast":
+                    return handleBroadcast(event)
                 case "ping":
                     return handlePing(event)
                 default:

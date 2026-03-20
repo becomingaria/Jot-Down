@@ -117,7 +117,7 @@ function relativeTime(isoString) {
 
 export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const { file, updateFile, saveContent } = useFile(wikiId, fileId)
-  const { idToken, accessToken } = useAuth()
+  const { idToken, accessToken, user } = useAuth()
   const [content, setContent] = useState("")
   const [isPreview, setIsPreview] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
@@ -131,6 +131,8 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const [remoteSyncMessage, setRemoteSyncMessage] = useState("")
   const statusTimerRef = useRef(null)
   const remoteSyncTimerRef = useRef(null)
+  const wsBroadcastTimerRef = useRef(null)
+  const sendContentRef = useRef(null)
   const [exportAnchor, setExportAnchor] = useState(null)
 
   // Conflict resolution state
@@ -217,16 +219,18 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     loadServerVersions()
   }, [wikiId, fileId, loadServerVersions])
 
-  // Live sync / collaboration — replaced by WebSocket hook (useCollaboration).
-  // The 4-second polling below is kept as a fallback when VITE_WS_URL is not
-  // configured (e.g. local dev without the infra deployed).
+  // Polling fallback — runs at 1.5 s when VITE_WS_URL is not configured.
+  // Even when WS IS configured, polling runs at 8 s as a safety net to catch
+  // any updates the WebSocket might have missed (e.g. after reconnect).
   useEffect(() => {
     if (!wikiId || !fileId) return
-    if (import.meta.env.VITE_WS_URL) return // WS hook handles this
+    const hasWs = Boolean(import.meta.env.VITE_WS_URL)
     let isActive = true
 
     const liveSyncTick = async () => {
-      if (!isActive || saveTimeoutRef.current) return
+      if (!isActive) return
+      // If local user is actively editing, skip to avoid overwriting mid-sentence
+      if (saveTimeoutRef.current) return
       try {
         const latest = await apiClient.getFile(wikiId, fileId)
         if (!latest?.content) return
@@ -238,26 +242,23 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           setSaveStatus("saved")
           setStatusMessage("Live update received")
           setRemoteSyncMessage("☁ Updated by collaborator")
+          setEditorKey((k) => k + 1)
 
           if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
-          remoteSyncTimerRef.current = setTimeout(() => {
-            setRemoteSyncMessage("")
-          }, 3000)
+          remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3000)
         }
       } catch (err) {
         console.warn("Live sync failed", err)
       }
     }
 
-    const intervalId = setInterval(liveSyncTick, 4000)
-
-    // Do one immediate check when the file is opened.
+    // Poll at 1.5 s without WS, 8 s as a safety-net when WS is active
+    const intervalId = setInterval(liveSyncTick, hasWs ? 8000 : 1500)
     liveSyncTick()
 
     return () => {
       isActive = false
       clearInterval(intervalId)
-      if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
     }
   }, [wikiId, fileId])
 
@@ -269,13 +270,36 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const saveContentRef = useRef(saveContent)     // stable ref to fire-and-forget save
 
   // ── Real-time collaboration via WebSocket ────────────────────────────────
-  const { connectionStatus, remoteUpdate, clearRemoteUpdate } = useCollaboration({
+  const { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent } = useCollaboration({
     wikiId,
     fileId,
     accessToken,
+    userEmail: user?.email,
   })
+  // Keep a stable ref so handleContentChange callback can use it without stale closures
+  sendContentRef.current = sendContent
 
-  // When a remote file.update arrives: apply directly if no local unsaved
+  // Keystroke-level remote content — apply immediately if local user is idle
+  useEffect(() => {
+    if (!remoteContent) return
+    clearRemoteContent()
+
+    // If the local user is actively typing (pending autosave), their version wins —
+    // skip the update so we don't clobber their work mid-sentence.
+    if (saveTimeoutRef.current) return
+
+    const { content: incoming, fromEmail } = remoteContent
+    if (incoming === contentRef.current) return // already in sync
+
+    setContent(incoming)
+    contentRef.current = incoming
+    setEditorKey((k) => k + 1)
+    setRemoteSyncMessage(`⚡ ${fromEmail || "collaborator"} is typing…`)
+    if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
+    remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 2500)
+  }, [remoteContent]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // When a remote file.update arrives (authoritative save): apply directly if no local unsaved
   // changes, otherwise surface a conflict resolution dialog.
   useEffect(() => {
     if (!remoteUpdate) return
@@ -411,9 +435,15 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       console.warn("Failed to save draft", err)
     }
 
+    // Broadcast keystroke content to other connected users via WebSocket
+    if (wsBroadcastTimerRef.current) clearTimeout(wsBroadcastTimerRef.current)
+    wsBroadcastTimerRef.current = setTimeout(() => {
+      sendContentRef.current?.(newContent)
+    }, 150)
+
     saveTimeoutRef.current = setTimeout(() => {
       doSave(contentRef.current)
-    }, 2500)
+    }, 800)
   }, [doSave, wikiId, fileId])
 
   const handleManualSave = useCallback(async () => {
