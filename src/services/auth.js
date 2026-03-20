@@ -70,9 +70,22 @@ export const authService = {
                 },
                 newPasswordRequired: (userAttributes) => {
                     console.info("Cognito newPasswordRequired challenge")
-                    // Keep the user object but do not submit email or other fixed attributes.
+                    // Keep only mutable user attributes for completeNewPasswordChallenge.
+                    const allowed = {}
+                    const forbidden = new Set([
+                        "email",
+                        "email_verified",
+                        "phone_number",
+                        "phone_number_verified",
+                        "sub",
+                    ])
+                    for (const [k, v] of Object.entries(userAttributes || {})) {
+                        if (!forbidden.has(k) && v !== undefined && v !== null) {
+                            allowed[k] = v
+                        }
+                    }
                     pendingCognitoUser = cognitoUser
-                    pendingUserAttributes = null
+                    pendingUserAttributes = allowed
                     reject({ code: "NewPasswordRequired", userAttributes })
                 },
             })
@@ -86,12 +99,11 @@ export const authService = {
                 reject(new Error("No pending password challenge"))
                 return
             }
-            const challengeData = pendingUserAttributes || undefined
+            const challengeData = pendingUserAttributes && Object.keys(pendingUserAttributes).length ? pendingUserAttributes : {}
             pendingCognitoUser.completeNewPasswordChallenge(
                 newPassword,
                 challengeData,
-                {
-                    onSuccess: (result) => {
+                {                    onSuccess: (result) => {
                         pendingCognitoUser = null
                         pendingUserAttributes = null
                         resolve({
