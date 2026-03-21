@@ -40,7 +40,7 @@ export function WikiView() {
   const { signOut, user, isAdmin } = useAuth()
   const { files, refetch: refetchFiles } = useFiles(wikiId)
   const { folders } = useFolders(wikiId)
-  const [drawerOpen, setDrawerOpen] = useState(!isMobile)
+  const [drawerOpen, setDrawerOpen] = useState(true)
   const [adminOpen, setAdminOpen] = useState(false)
   const [fileTreeRefresh, setFileTreeRefresh] = useState(0)
 

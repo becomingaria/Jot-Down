@@ -89,14 +89,14 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
     }, [])
 
     /** Broadcast cursor position to all other subscribers. */
-    const sendCursor = useCallback((blockId, offset) => {
+    const sendCursor = useCallback((blockIndex, offset) => {
         if (wsRef.current?.readyState !== WebSocket.OPEN) return
         wsRef.current.send(
             JSON.stringify({
                 action: "cursor",
                 wikiId: activeFileRef.current.wikiId,
                 fileId: activeFileRef.current.fileId,
-                blockId,
+                blockIndex,
                 offset,
                 fromEmail: userEmailRef.current || "collaborator",
             }),
@@ -163,7 +163,7 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                     setRemoteCursors((prev) => ({
                         ...prev,
                         [msg.fromEmail]: {
-                            blockId: msg.blockId,
+                            blockIndex: msg.blockIndex,
                             offset: msg.offset,
                             color,
                             email: msg.fromEmail,

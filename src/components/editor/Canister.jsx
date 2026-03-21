@@ -328,7 +328,10 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
       while (el && !el.dataset?.blockId) el = el.parentElement
       if (!el) return
-      const blockId = el.dataset.blockId
+      // Use block index (position) — stable across users; UUIDs differ per client
+      const allBlocks = Array.from(document.querySelectorAll('[data-block-id]'))
+      const blockIndex = allBlocks.indexOf(el)
+      if (blockIndex === -1) return
       // Count characters before cursor in the .block-editable
       const editable = el.querySelector('.block-editable') || el
       const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
@@ -338,7 +341,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
         offset += n.textContent.length
         n = walker.nextNode()
       }
-      sendCursorRef.current?.(blockId, offset)
+      sendCursorRef.current?.(blockIndex, offset)
     }
     document.addEventListener('selectionchange', handleSelChange)
     return () => document.removeEventListener('selectionchange', handleSelChange)

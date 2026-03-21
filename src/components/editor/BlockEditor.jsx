@@ -797,7 +797,7 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
           wikiId={wikiId}
           fileId={fileId}
           isOnlyBlock={blocks.length === 1}
-          remoteCursors={Object.values(remoteCursors || {}).filter(c => c.blockId === block.id)}
+          remoteCursors={Object.values(remoteCursors || {}).filter(c => c.blockIndex === idx)}
         />
       ))}
       {slashMenu && !pageLinkOpen && (

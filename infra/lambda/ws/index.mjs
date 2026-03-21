@@ -306,7 +306,7 @@ async function handleBroadcast(event) {
 async function handleCursorBroadcast(event) {
     const connectionId = event.requestContext.connectionId
     const body = JSON.parse(event.body || "{}")
-    const { wikiId, fileId, blockId, offset, fromEmail } = body
+    const { wikiId, fileId, blockIndex, offset, fromEmail } = body
     if (!wikiId || !fileId) return { statusCode: 400, body: "missing fields" }
 
     let connections = []
@@ -332,7 +332,7 @@ async function handleCursorBroadcast(event) {
             type: "cursor.update",
             wikiId,
             fileId,
-            blockId,
+            blockIndex: blockIndex ?? 0,
             offset: offset ?? 0,
             fromEmail,
         }),
