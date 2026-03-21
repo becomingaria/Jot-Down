@@ -137,6 +137,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
   const lastSyncedRevRef = useRef(null)
   const [externalLiveContent, setExternalLiveContent] = useState(null)
+  // Tracks which fileId we've already done the initial content load for.
+  // Prevents post-save refetches from clobbering in-flight edits.
+  const fileLoadedRef = useRef(null)
 
   // Editable heading state
   const [editingName, setEditingName] = useState(false)
@@ -174,11 +177,18 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   // updateFile call would overwrite the editor with stale content.
   useEffect(() => {
     if (file?.fileId === fileId && file?.content !== undefined && wikiId && fileId) {
+      // Always keep content/ref in sync for save logic
       setContent(file.content)
-      setExternalLiveContent(file.content)
       contentRef.current = file.content  // keep ref in sync so unmount-save is accurate
       setHasChanges(false)
       editCountRef.current = 0
+
+      // Only push through externalLiveContent on the FIRST load for this fileId.
+      // Post-save refetches must not reset the editor — the user may be mid-type.
+      const isInitialLoad = fileLoadedRef.current !== fileId
+      if (isInitialLoad) {
+        fileLoadedRef.current = fileId
+      }
 
       try {
         const draftKey = getDraftKey(wikiId, fileId)
@@ -187,7 +197,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           setHasDraft(true)
           setDraftContent(saved)
           setContent(saved)
-          setExternalLiveContent(saved)
+          if (isInitialLoad) setExternalLiveContent(saved)
           contentRef.current = saved
           setHasChanges(true)
           setSaveStatus("unsaved")
@@ -196,17 +206,22 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           return
         }
 
+        if (isInitialLoad) setExternalLiveContent(file.content)
         setHasDraft(false)
         setDraftContent("")
         localStorage.removeItem(draftKey)
       } catch (err) {
         console.warn("Failed to load local draft", err)
+        if (isInitialLoad) setExternalLiveContent(file.content)
       }
     }
   }, [file, wikiId, fileId])
 
   useEffect(() => {
     if (!wikiId || !fileId) return
+
+    // Reset initial-load guard so the new file's first fetch triggers BlockEditor update
+    fileLoadedRef.current = null
 
     // Cleanup old localStorage version keys from previous local checkpoint implementation.
     try {
