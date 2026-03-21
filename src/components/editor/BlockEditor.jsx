@@ -739,7 +739,8 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
         const hasFullSelection =
           selectAllStage === 2 ||
           (selectedIds.length > 0 && selectedIds.length === blocks.length)
-        if (!selectedIds.length && !hasFullSelection) return
+        // Single-block drag-select: let the browser copy the highlighted text naturally
+        if (selectedIds.length <= 1 && !hasFullSelection) return
         e.preventDefault()
         const toCopy = hasFullSelection ? blocks : blocks.filter((b) => selectedIds.includes(b.id))
         e.clipboardData.setData("text/plain", blocksToMarkdown(toCopy))
@@ -750,7 +751,8 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
         const hasFullSelection =
           selectAllStage === 2 ||
           (selectedIds.length > 0 && selectedIds.length === blocks.length)
-        if (!selectedIds.length && !hasFullSelection) return
+        // Single-block drag-select: let the browser cut the highlighted text naturally
+        if (selectedIds.length <= 1 && !hasFullSelection) return
         e.preventDefault()
         const toCut = hasFullSelection ? blocks : blocks.filter((b) => selectedIds.includes(b.id))
         e.clipboardData.setData("text/plain", blocksToMarkdown(toCut))
@@ -765,15 +767,23 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
           return
         }
 
-        e.preventDefault()
         const text = e.clipboardData.getData("text/plain")
         if (!text) return
 
-        const pastedBlocks = markdownToBlocks(text)
         const selectedIds = getSelectedBlockIds()
         const hasFullSelection =
           selectAllStage === 2 ||
           (selectedIds.length > 0 && selectedIds.length === blocks.length)
+        const isMultiBlockSelection = selectedIds.length > 1 || hasFullSelection
+        const isMultiLine = text.includes("\n")
+
+        // Single cursor / single-block selection and single-line text:
+        // let the browser insert at the cursor position naturally.
+        // onInput will fire and apply inline markdown conversion.
+        if (!isMultiBlockSelection && !isMultiLine) return
+
+        e.preventDefault()
+        const pastedBlocks = markdownToBlocks(text)
 
         // If whole document is selected, replace it fully
         if (hasFullSelection) {
