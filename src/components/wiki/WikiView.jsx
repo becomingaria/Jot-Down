@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   Box,
@@ -46,7 +46,7 @@ export function WikiView() {
   // Re-runs whenever selectedFileId changes (i.e. the user tapped into a wiki).
   useEffect(() => {
     if (isMobile) setDrawerOpen(true)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
   const [adminOpen, setAdminOpen] = useState(false)
   const [fileTreeRefresh, setFileTreeRefresh] = useState(0)
