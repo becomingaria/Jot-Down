@@ -421,6 +421,32 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       setStatusMessage("")
       return false
     }
+
+    // Capture focus + caret before any state updates so re-renders during save
+    // (from setSaving, setFile after fetchFile, WS reconnects, etc.) can't
+    // steal or disrupt the user's cursor position.
+    const preSaveFocus = document.activeElement
+    const preSaveRange = (() => {
+      try {
+        const sel = window.getSelection()
+        if (sel && sel.rangeCount > 0) return sel.getRangeAt(0).cloneRange()
+      } catch {}
+      return null
+    })()
+
+    const restoreFocus = () => {
+      try {
+        if (preSaveFocus && document.body.contains(preSaveFocus)) {
+          if (document.activeElement !== preSaveFocus) preSaveFocus.focus()
+          if (preSaveRange) {
+            const sel = window.getSelection()
+            sel.removeAllRanges()
+            sel.addRange(preSaveRange)
+          }
+        }
+      } catch {}
+    }
+
     try {
       savingRef.current = true
       setSaving(true)
@@ -457,6 +483,8 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       savingRef.current = false
       setSaving(false)
       setIsSaving(false)
+      // Restore focus after React flushes the state updates above
+      requestAnimationFrame(restoreFocus)
     }
   }, [updateFile, wikiId, fileId])
 

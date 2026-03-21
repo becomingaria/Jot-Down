@@ -102,7 +102,7 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
     // Keep refs current for use inside WebSocket callbacks
     useEffect(() => {
         activeFileRef.current = { wikiId, fileId }
-        setRemoteCursors({}) // clear cursors when file changes
+        setRemoteCursors((prev) => (Object.keys(prev).length === 0 ? prev : {})) // clear cursors when file changes
     }, [wikiId, fileId])
 
     useEffect(() => {
@@ -287,7 +287,7 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                 wsRef.current = null
             }
             setConnectionStatus("closed")
-            setRemoteCursors({})
+            setRemoteCursors((prev) => (Object.keys(prev).length === 0 ? prev : {}))
             Object.values(cursorExpireTimers.current).forEach(clearTimeout)
             cursorExpireTimers.current = {}
         }
