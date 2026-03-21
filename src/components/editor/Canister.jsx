@@ -415,7 +415,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
   const doSave = useCallback(async (text) => {
     if (savingRef.current) return false
-    if (text === file?.content) {
+    if (text === fileContentRef.current) {
       setHasChanges(false)
       setSaveStatus(null)
       setStatusMessage("")
@@ -458,7 +458,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       setSaving(false)
       setIsSaving(false)
     }
-  }, [file?.content, updateFile, wikiId, fileId])
+  }, [updateFile, wikiId, fileId])
 
   const handleContentChange = useCallback((newContent) => {
     setContent(newContent)

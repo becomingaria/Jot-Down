@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from "react"
+import React, { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import DataGrid, { textEditor } from "react-data-grid"
 import Papa from "papaparse"
 import "react-data-grid/lib/styles.css"
@@ -128,7 +128,8 @@ export function CsvBlock({ block, onChange, onFocus }) {
 
   /* ── Column definitions ───────────────────────────────────────── */
 
-  const columns = [
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const columns = useMemo(() => [
     ...headers.map((name, ci) => ({
       key: `c${ci}`,
       name,
@@ -189,7 +190,8 @@ export function CsvBlock({ block, onChange, onFocus }) {
         </button>
       ),
     },
-  ]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [headers, editingHeader, handleRowsChange, deleteColumn, addColumn, deleteRow])
 
   return (
     <div className="block-csv-wrapper" onClick={onFocus}>

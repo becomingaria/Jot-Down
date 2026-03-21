@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { apiClient } from "../services/api"
 import { useAuth } from "../contexts/AuthContext"
 
@@ -130,7 +130,7 @@ export function useFile(wikiId, fileId) {
         setFile(null)
     }, [fileId])
 
-    const fetchFile = async () => {
+    const fetchFile = useCallback(async () => {
         if (!wikiId || !fileId) return
         const requestedFileId = fileId
 
@@ -147,16 +147,16 @@ export function useFile(wikiId, fileId) {
         } finally {
             if (latestFileIdRef.current === requestedFileId) setLoading(false)
         }
-    }
+    }, [wikiId, fileId])
 
     useEffect(() => {
         if (idToken && wikiId && fileId) {
             fetchFile()
         }
-    }, [idToken, wikiId, fileId])
+    }, [idToken, wikiId, fileId, fetchFile])
 
     // Full update — saves content and refreshes file state.
-    const updateFile = async (data) => {
+    const updateFile = useCallback(async (data) => {
         try {
             await apiClient.updateFile(wikiId, fileId, data)
             await fetchFile()
@@ -164,7 +164,7 @@ export function useFile(wikiId, fileId) {
             setError(err.message)
             throw err
         }
-    }
+    }, [wikiId, fileId, fetchFile])
 
     // Fire-and-forget save — only PUTs content, no refetch.
     // Used by flush-on-switch so that a late-arriving response can't
