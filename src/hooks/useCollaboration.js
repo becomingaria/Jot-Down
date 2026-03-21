@@ -22,11 +22,21 @@ import { useState, useEffect, useRef, useCallback } from "react"
 
 const WS_URL = import.meta.env.VITE_WS_URL
 
-const CURSOR_COLORS = ['#e91e63','#9c27b0','#2196f3','#009688','#ff5722','#795548','#ff9800','#3f51b5']
+const CURSOR_COLORS = [
+    "#e91e63",
+    "#9c27b0",
+    "#2196f3",
+    "#009688",
+    "#ff5722",
+    "#795548",
+    "#ff9800",
+    "#3f51b5",
+]
 
 function emailToColor(email) {
     let h = 0
-    for (let i = 0; i < (email || '').length; i++) h = (email.charCodeAt(i) + ((h << 5) - h)) | 0
+    for (let i = 0; i < (email || "").length; i++)
+        h = (email.charCodeAt(i) + ((h << 5) - h)) | 0
     return CURSOR_COLORS[Math.abs(h) % CURSOR_COLORS.length]
 }
 
@@ -150,15 +160,28 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                     setRemoteContent(msg)
                 } else if (msg.type === "cursor.update" && isCurrentFile) {
                     const color = emailToColor(msg.fromEmail)
-                    setRemoteCursors(prev => ({
+                    setRemoteCursors((prev) => ({
                         ...prev,
-                        [msg.fromEmail]: { blockId: msg.blockId, offset: msg.offset, color, email: msg.fromEmail },
+                        [msg.fromEmail]: {
+                            blockId: msg.blockId,
+                            offset: msg.offset,
+                            color,
+                            email: msg.fromEmail,
+                        },
                     }))
                     // Auto-expire cursor after 5 seconds of inactivity
-                    if (cursorExpireTimers.current[msg.fromEmail]) clearTimeout(cursorExpireTimers.current[msg.fromEmail])
-                    cursorExpireTimers.current[msg.fromEmail] = setTimeout(() => {
-                        setRemoteCursors(prev => { const n = { ...prev }; delete n[msg.fromEmail]; return n })
-                    }, 5000)
+                    if (cursorExpireTimers.current[msg.fromEmail])
+                        clearTimeout(cursorExpireTimers.current[msg.fromEmail])
+                    cursorExpireTimers.current[msg.fromEmail] = setTimeout(
+                        () => {
+                            setRemoteCursors((prev) => {
+                                const n = { ...prev }
+                                delete n[msg.fromEmail]
+                                return n
+                            })
+                        },
+                        5000,
+                    )
                 }
                 // 'subscribed', 'pong', 'error' — no state needed
             } catch {

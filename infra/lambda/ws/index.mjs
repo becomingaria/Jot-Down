@@ -23,6 +23,7 @@ import {
     PutCommand,
     GetCommand,
     DeleteCommand,
+    QueryCommand,
 } from "@aws-sdk/lib-dynamodb"
 import {
     ApiGatewayManagementApiClient,
@@ -327,7 +328,14 @@ async function handleCursorBroadcast(event) {
     }
 
     const payload = Buffer.from(
-        JSON.stringify({ type: "cursor.update", wikiId, fileId, blockId, offset: offset ?? 0, fromEmail }),
+        JSON.stringify({
+            type: "cursor.update",
+            wikiId,
+            fileId,
+            blockId,
+            offset: offset ?? 0,
+            fromEmail,
+        }),
     )
     const client = mgmtClient(event)
 
@@ -337,12 +345,32 @@ async function handleCursorBroadcast(event) {
             .map(async ({ connectionId: connId }) => {
                 try {
                     await client.send(
-                        new PostToConnectionCommand({ ConnectionId: connId, Data: payload }),
+                        new PostToConnectionCommand({
+                            ConnectionId: connId,
+                            Data: payload,
+                        }),
                     )
                 } catch (err) {
                     if (err.$metadata?.httpStatusCode === 410) {
-                        await ddb.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { PK: `WSFILE#${wikiId}#${fileId}`, SK: `CONN#${connId}` } })).catch(() => {})
-                        await ddb.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { PK: `WSCONN#${connId}`, SK: "META" } })).catch(() => {})
+                        await ddb
+                            .send(
+                                new DeleteCommand({
+                                    TableName: TABLE_NAME,
+                                    Key: {
+                                        PK: `WSFILE#${wikiId}#${fileId}`,
+                                        SK: `CONN#${connId}`,
+                                    },
+                                }),
+                            )
+                            .catch(() => {})
+                        await ddb
+                            .send(
+                                new DeleteCommand({
+                                    TableName: TABLE_NAME,
+                                    Key: { PK: `WSCONN#${connId}`, SK: "META" },
+                                }),
+                            )
+                            .catch(() => {})
                     }
                 }
             }),
