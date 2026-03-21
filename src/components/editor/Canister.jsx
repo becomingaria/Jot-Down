@@ -436,12 +436,24 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     const restoreFocus = () => {
       try {
-        if (preSaveFocus && document.body.contains(preSaveFocus)) {
-          if (document.activeElement !== preSaveFocus) preSaveFocus.focus()
+        // Only act if focus was actually stolen away during the save.
+        // If the element is still focused, the user continued typing and their
+        // cursor is already in the right place — don't touch it.
+        if (
+          preSaveFocus &&
+          document.body.contains(preSaveFocus) &&
+          document.activeElement !== preSaveFocus
+        ) {
+          preSaveFocus.focus()
+          // Restore the saved range only when we had to re-focus.
+          // The range may be stale (user typed during the async save), but it's
+          // better than landing at position 0 or end.
           if (preSaveRange) {
-            const sel = window.getSelection()
-            sel.removeAllRanges()
-            sel.addRange(preSaveRange)
+            try {
+              const sel = window.getSelection()
+              sel.removeAllRanges()
+              sel.addRange(preSaveRange)
+            } catch {}
           }
         }
       } catch {}
