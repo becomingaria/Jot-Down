@@ -40,7 +40,14 @@ export function WikiView() {
   const { signOut, user, isAdmin } = useAuth()
   const { files, refetch: refetchFiles } = useFiles(wikiId)
   const { folders } = useFolders(wikiId)
-  const [drawerOpen, setDrawerOpen] = useState(true)
+  const [drawerOpen, setDrawerOpen] = useState(!isMobile)
+
+  // On mobile, open the drawer when navigating to a file so the tree is visible first.
+  // Re-runs whenever selectedFileId changes (i.e. the user tapped into a wiki).
+  useEffect(() => {
+    if (isMobile) setDrawerOpen(true)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [adminOpen, setAdminOpen] = useState(false)
   const [fileTreeRefresh, setFileTreeRefresh] = useState(0)
 

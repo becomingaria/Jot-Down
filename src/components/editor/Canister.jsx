@@ -488,13 +488,12 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       clearTimeout(saveTimeoutRef.current)
     }
 
-    const didSave = await doSave(contentRef.current)
-    if (didSave) {
-      try {
-        await createServerVersion(contentRef.current, "Manual save")
-      } catch (err) {
-        console.error("Failed to create manual restore point", err)
-      }
+    await doSave(contentRef.current)
+    // Always create a restore point on explicit save (even if content was already in sync)
+    try {
+      await createServerVersion(contentRef.current, "Manual save")
+    } catch (err) {
+      console.error("Failed to create manual restore point", err)
     }
   }, [doSave, createServerVersion])
 
@@ -912,7 +911,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           anchor="right"
           open={versionsOpen}
           onClose={() => setVersionsOpen(false)}
-          PaperProps={{ sx: { width: 300, mt: 10, height: 'calc(100vh - 8rem)' } }}
+          PaperProps={{ sx: { width: 300, mt: 16, height: 'calc(100vh - 9rem)' } }}
         >
           <Box sx={{ p: 2, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <Typography variant="h6">Version History</Typography>
@@ -955,7 +954,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           <Divider />
           <Box sx={{ p: 1.5 }}>
             <Typography variant="caption" color="text.secondary">
-              Ctrl+S creates a new recovery point on every save.
+              {/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+                ? 'Tap the save icon to create a recovery point.'
+                : `${navigator.platform.includes('Mac') ? '⌘' : 'Ctrl'}+S creates a new recovery point on every save.`}
             </Typography>
           </Box>
         </Drawer>
@@ -1026,9 +1027,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
         <IconButton
           onClick={handleManualSave}
-          disabled={!hasChanges || saving}
+          disabled={saving}
           color="primary"
-          title="Hard save (create restore point)"
+          title="Save (create restore point)"
         >
           <Save />
         </IconButton>
