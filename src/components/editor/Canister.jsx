@@ -172,23 +172,20 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     }
   }, [wikiId, fileId])
 
-  // Only load content when the file that arrived belongs to the current fileId.
-  // Without this guard, a late-arriving refetch from the previous file's
-  // updateFile call would overwrite the editor with stale content.
+  // Only load content on the FIRST fetch for this fileId.
+  // Post-save refetches (from updateFile → fetchFile) must be ignored here
+  // to avoid reverting characters typed during the save's network round-trip.
+  // fileContentRef (updated by its own effect) handles save-comparison tracking.
   useEffect(() => {
     if (file?.fileId === fileId && file?.content !== undefined && wikiId && fileId) {
-      // Always keep content/ref in sync for save logic
+      const isInitialLoad = fileLoadedRef.current !== fileId
+      if (!isInitialLoad) return
+
+      fileLoadedRef.current = fileId
       setContent(file.content)
-      contentRef.current = file.content  // keep ref in sync so unmount-save is accurate
+      contentRef.current = file.content
       setHasChanges(false)
       editCountRef.current = 0
-
-      // Only push through externalLiveContent on the FIRST load for this fileId.
-      // Post-save refetches must not reset the editor — the user may be mid-type.
-      const isInitialLoad = fileLoadedRef.current !== fileId
-      if (isInitialLoad) {
-        fileLoadedRef.current = fileId
-      }
 
       try {
         const draftKey = getDraftKey(wikiId, fileId)
@@ -197,22 +194,21 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           setHasDraft(true)
           setDraftContent(saved)
           setContent(saved)
-          if (isInitialLoad) setExternalLiveContent(saved)
+          setExternalLiveContent(saved)
           contentRef.current = saved
           setHasChanges(true)
           setSaveStatus("unsaved")
           setStatusMessage("Unsaved draft restored from local storage.")
-          // keep local draft so user can continue typing or save
           return
         }
 
-        if (isInitialLoad) setExternalLiveContent(file.content)
+        setExternalLiveContent(file.content)
         setHasDraft(false)
         setDraftContent("")
         localStorage.removeItem(draftKey)
       } catch (err) {
         console.warn("Failed to load local draft", err)
-        if (isInitialLoad) setExternalLiveContent(file.content)
+        setExternalLiveContent(file.content)
       }
     }
   }, [file, wikiId, fileId])
@@ -270,9 +266,17 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     const intervalId = setInterval(liveSyncTick, hasWs ? 8000 : 1500)
     liveSyncTick()
 
+    // On mobile, timers pause when the tab/app is backgrounded.
+    // Refresh immediately when the page becomes visible again.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') liveSyncTick()
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
     return () => {
       isActive = false
       clearInterval(intervalId)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [wikiId, fileId])
 
@@ -306,9 +310,13 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     setExternalLiveContent(incoming)
     setContent(incoming)
     contentRef.current = incoming
-    setRemoteSyncMessage(`⚡ ${fromEmail || "collaborator"} is typing…`)
+
+    // Show "X is typing..." — reset timer on every keystroke so it persists
+    // until 3 s after they stop typing
+    const displayName = fromEmail?.split('@')[0] || 'collaborator'
+    setRemoteSyncMessage(`${displayName} is typing…`)
     if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
-    remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 2500)
+    remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3000)
   }, [remoteContent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Authoritative save notification — always apply (last-write-wins)
@@ -870,14 +878,15 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
               textOverflow: 'ellipsis',
             }}
           >
-            {remoteSyncMessage ||
-              (saveStatus === 'saving'
-                ? 'Autosaving\u2026'
+            {remoteSyncMessage
+              ? remoteSyncMessage
+              : saveStatus === 'saving'
+                ? 'Autosaving…'
                 : saveStatus === 'saved'
                   ? 'Saved'
                   : saveStatus === 'unsaved'
                     ? 'Unsaved'
-                    : '')}
+                    : ''}
           </Typography>
           {import.meta.env.VITE_WS_URL && (
             <Tooltip title={connectionStatus === 'open' ? 'Live collaboration active' : 'Reconnecting\u2026'}>

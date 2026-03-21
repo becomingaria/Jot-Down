@@ -199,6 +199,8 @@ export function Block({
           is changed externally, e.g. after merge/split/slash-select) ---- */
   useEffect(() => {
     if (!ref.current) return
+    // Never clobber an element the user is actively typing in — that resets the cursor.
+    if (document.activeElement === ref.current) return
     // Only overwrite DOM when it differs from React state to avoid clobbering
     // an in-progress edit.
     if (ref.current.textContent !== block.content) {
