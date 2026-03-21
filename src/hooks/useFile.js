@@ -156,15 +156,18 @@ export function useFile(wikiId, fileId) {
     }, [idToken, wikiId, fileId, fetchFile])
 
     // Full update — saves content and refreshes file state.
-    const updateFile = useCallback(async (data) => {
-        try {
-            await apiClient.updateFile(wikiId, fileId, data)
-            await fetchFile()
-        } catch (err) {
-            setError(err.message)
-            throw err
-        }
-    }, [wikiId, fileId, fetchFile])
+    const updateFile = useCallback(
+        async (data) => {
+            try {
+                await apiClient.updateFile(wikiId, fileId, data)
+                await fetchFile()
+            } catch (err) {
+                setError(err.message)
+                throw err
+            }
+        },
+        [wikiId, fileId, fetchFile],
+    )
 
     // Fire-and-forget save — only PUTs content, no refetch.
     // Used by flush-on-switch so that a late-arriving response can't

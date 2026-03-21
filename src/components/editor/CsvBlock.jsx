@@ -190,7 +190,7 @@ export function CsvBlock({ block, onChange, onFocus }) {
         </button>
       ),
     },
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [headers, editingHeader, handleRowsChange, deleteColumn, addColumn, deleteRow])
 
   return (
