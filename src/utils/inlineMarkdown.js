@@ -120,3 +120,37 @@ export function applyInlineMarkdown(el) {
 
     return false
 }
+
+/**
+ * Convert a string of markdown inline syntax to an HTML string.
+ * Used to hydrate a contentEditable element from stored block content.
+ *
+ * XSS-safe: HTML special characters are escaped first so that only the
+ * known inline-markdown constructs produce actual HTML tags.
+ *
+ * @param {string} text  e.g. "**hello** *world*"
+ * @returns {string}     e.g. "<strong>hello</strong> <em>world</em>"
+ */
+export function markdownInlineToHtml(text) {
+    if (!text) return ""
+    // Escape HTML to prevent XSS, with placeholder-swap for <u>...</u>
+    // (underline has no standard markdown syntax so we store it as HTML).
+    const T = "\x00"
+    let s = text
+        .replace(/<u>/gi, `${T}u${T}`)
+        .replace(/<\/u>/gi, `${T}/u${T}`)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(new RegExp(`${T}u${T}`, "g"), "<u>")
+        .replace(new RegExp(`${T}/u${T}`, "g"), "</u>")
+    // Apply inline markdown → HTML (order matters: ** before *)
+    return s
+        .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+        .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+        .replace(/~~([^~\n]+)~~/g, "<s>$1</s>")
+        .replace(/==([^=\n]+)==/g, "<mark>$1</mark>")
+        .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+        .replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g, "<em>$1</em>")
+        .replace(/(?<!_)_([^_\n]+)_(?!_)/g, "<em>$1</em>")
+}

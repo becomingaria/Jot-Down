@@ -1,6 +1,6 @@
 import React, { useRef, useEffect, useCallback, useState } from "react"
 import { BLOCK_TYPES, SLASH_COMMANDS } from "../../utils/blockTypes"
-import { applyInlineMarkdown } from "../../utils/inlineMarkdown"
+import { applyInlineMarkdown, markdownInlineToHtml } from "../../utils/inlineMarkdown"
 import { CsvBlock } from "./CsvBlock"
 
 /* ──────────── helpers ──────────── */
@@ -29,6 +29,33 @@ function wrapSelectionWithTag(el, tag) {
   sel.removeAllRanges()
   sel.addRange(newRange)
   return true
+}
+
+/**
+ * Serialize the innerHTML of a contentEditable element back to markdown inline syntax.
+ * Inverse of markdownInlineToHtml. Used so that Cmd+B / applyInlineMarkdown
+ * changes are persisted in the block's content string rather than stripped.
+ */
+function innerHtmlToMarkdown(el) {
+  function nodeToMd(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      // Strip zero-width spaces inserted by applyInlineMarkdown
+      return node.textContent.replace(/\u200B/g, "")
+    }
+    if (node.nodeType !== Node.ELEMENT_NODE) return ""
+    const inner = Array.from(node.childNodes).map(nodeToMd).join("")
+    switch (node.tagName.toUpperCase()) {
+      case "STRONG": case "B": return `**${inner}**`
+      case "EM": case "I": return `*${inner}*`
+      case "S": return `~~${inner}~~`
+      case "CODE": return `\`${inner}\``
+      case "MARK": return `==${inner}==`
+      case "U": return `<u>${inner}</u>`
+      case "BR": return "\n"
+      default: return inner
+    }
+  }
+  return Array.from(el.childNodes).map(nodeToMd).join("").replace(/\u200B/g, "")
 }
 
 const INLINE_FORMAT_KEYS = {
@@ -142,6 +169,8 @@ export function Block({
   const [hovered, setHovered] = useState(false)
   const [imageSize, setImageSize] = useState(null)
   const typeMenuRef = useRef(null)
+  const plusBtnRef = useRef(null)
+  const [menuAnchor, setMenuAnchor] = useState(null) // { top, left } for fixed-position menu
 
   useEffect(() => {
     if (block.type !== BLOCK_TYPES.IMAGE) {
@@ -234,12 +263,18 @@ export function Block({
     if (!ref.current) return
     // Never clobber an element the user is actively typing in — that resets the cursor.
     if (document.activeElement === ref.current) return
-    // Only overwrite DOM when it differs from React state to avoid clobbering
-    // an in-progress edit.
-    if (ref.current.textContent !== block.content) {
-      ref.current.textContent = block.content
+    if (block.type === BLOCK_TYPES.CODE) {
+      // Code blocks stay as plain text — no inline HTML
+      if (ref.current.textContent !== block.content) {
+        ref.current.textContent = block.content
+      }
+    } else {
+      const expectedHtml = markdownInlineToHtml(block.content)
+      if (ref.current.innerHTML !== expectedHtml) {
+        ref.current.innerHTML = expectedHtml
+      }
     }
-  }, [block.content, block.id])
+  }, [block.content, block.id, block.type])
 
   /* ---- Focus management ---- */
   useEffect(() => {
@@ -259,26 +294,26 @@ export function Block({
   const handleInput = useCallback(() => {
     if (!ref.current) return
 
-    // Try inline markdown conversion (e.g. **bold** → <strong>bold</strong>)
-    // Skip for code blocks — they should stay plain text
-    if (block.type !== BLOCK_TYPES.CODE) {
-      const replaced = applyInlineMarkdown(ref.current)
-      if (replaced) {
-        // Content changed via innerHTML — report the plain-text version
-        onChange(ref.current.textContent)
-        return
-      }
+    // Code blocks: always plain text, no inline formatting
+    if (block.type === BLOCK_TYPES.CODE) {
+      onChange(ref.current.textContent)
+      return
     }
 
-    onChange(ref.current.textContent)
+    // Try inline markdown conversion (e.g. **bold** → <strong>bold</strong>)
+    applyInlineMarkdown(ref.current)
+    // Serialize innerHTML back to markdown so formatting is preserved in block.content
+    onChange(innerHtmlToMarkdown(ref.current))
   }, [onChange, block.type])
 
   /* ---- Blur — final sync ---- */
   const handleBlur = useCallback(() => {
     if (ref.current) {
-      onChange(ref.current.textContent)
+      onChange(block.type === BLOCK_TYPES.CODE
+        ? ref.current.textContent
+        : innerHtmlToMarkdown(ref.current))
     }
-  }, [onChange])
+  }, [onChange, block.type])
 
   /* ---- Keyboard ---- */
   const handleKeyDown = useCallback(
@@ -310,7 +345,7 @@ export function Block({
         if (tag && ref.current) {
           e.preventDefault()
           wrapSelectionWithTag(ref.current, tag)
-          onChange(ref.current.textContent)
+          onChange(innerHtmlToMarkdown(ref.current))
           return
         }
       }
@@ -361,6 +396,7 @@ export function Block({
     const handleClick = (e) => {
       if (typeMenuRef.current && !typeMenuRef.current.contains(e.target)) {
         setShowTypeMenu(false)
+        setMenuAnchor(null)
       }
     }
     document.addEventListener("mousedown", handleClick)
@@ -380,17 +416,33 @@ export function Block({
       >
         <button
           className="block-plus-btn"
+          ref={plusBtnRef}
           contentEditable={false}
           tabIndex={-1}
           title="Change block type"
           onMouseDown={(e) => {
             e.preventDefault()
             e.stopPropagation()
+            if (!showTypeMenu && plusBtnRef.current) {
+              const rect = plusBtnRef.current.getBoundingClientRect()
+              const estimatedMenuH = 290
+              const spaceBelow = window.innerHeight - rect.bottom - 8
+              const top = spaceBelow >= estimatedMenuH
+                ? rect.bottom + 4
+                : Math.max(8, rect.top - estimatedMenuH)
+              setMenuAnchor({ top, left: rect.left })
+            } else {
+              setMenuAnchor(null)
+            }
             setShowTypeMenu((prev) => !prev)
           }}
         >+</button>
-        {showTypeMenu && (
-          <div className="block-type-menu" ref={typeMenuRef}>
+        {showTypeMenu && menuAnchor && (
+          <div
+            className="block-type-menu"
+            ref={typeMenuRef}
+            style={{ position: "fixed", top: menuAnchor.top, left: menuAnchor.left }}
+          >
             {SLASH_COMMANDS.map((cmd) => (
               <button
                 key={cmd.id}
@@ -399,6 +451,7 @@ export function Block({
                   e.preventDefault()
                   e.stopPropagation()
                   setShowTypeMenu(false)
+                  setMenuAnchor(null)
                   if (onChangeType) onChangeType(block.id, cmd.type)
                 }}
               >

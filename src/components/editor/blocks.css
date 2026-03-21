@@ -184,10 +184,13 @@
 .block-divider {
     padding: 8px 0;
     cursor: default;
+    align-items: center;
 }
 .block-divider hr {
+    flex: 1;
+    align-self: center;
     border: none;
-    border-top: 1px solid var(--clr-border);
+    border-top: 2px solid var(--clr-border);
     margin: 0;
 }
 .block-divider:hover hr {

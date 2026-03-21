@@ -882,14 +882,11 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             {file.name}
           </Typography>
         )}
-        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 220, gap: 1 }}>
-          {isSaving && (
-            <Box className="loader" sx={{ opacity: 0.85 }} />
-          )}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 160, gap: 1, flexShrink: 0 }}>
           <Typography
             variant="body2"
             sx={{
-              minWidth: 90,
+              width: 90,
               textAlign: 'center',
               opacity: isSaving || saveStatus ? 1 : 0.7,
               transition: 'opacity 150ms ease',

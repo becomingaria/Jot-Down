@@ -533,6 +533,9 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
         b.id === blockId ? { ...b, type: newType } : b,
       )
       persist(newBlocks)
+      // Focus the block so the user can immediately start typing
+      setActiveBlockId(blockId)
+      setCaretTarget({ blockId, offset: (oldBlock?.content || "").length })
     },
     [blocks, persist, pushUndo, deleteImageAsset],
   )
