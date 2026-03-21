@@ -20,7 +20,45 @@
 
 import { useState, useEffect, useRef, useCallback } from "react"
 
-const WS_URL = import.meta.env.VITE_WS_URL
+/**
+ * Validate and sanitize the WS URL from the environment.
+ * Guards against a common Netlify misconfiguration where the env var value
+ * accidentally includes the key name (e.g. "VITE_WS_URL=wss://...") instead
+ * of just the URL, causing the browser to treat it as a relative path.
+ */
+function resolveWsUrl(raw) {
+    if (!raw) return null
+    const trimmed = raw.trim()
+    // Detect accidental KEY=VALUE format from Netlify dashboard misconfiguration
+    const hasKeyPrefix =
+        !trimmed.startsWith("wss://") &&
+        !trimmed.startsWith("ws://") &&
+        trimmed.includes("=")
+    const resolved = hasKeyPrefix
+        ? trimmed.slice(trimmed.indexOf("=") + 1)
+        : trimmed
+    if (!/^wss?:\/\//.test(resolved)) {
+        console.error(
+            "[useCollaboration] VITE_WS_URL is not a valid WebSocket URL.\n" +
+                "Value received: " +
+                JSON.stringify(raw) +
+                "\n" +
+                "Expected: wss://<api-id>.execute-api.<region>.amazonaws.com/<stage>\n" +
+                "Fix: in the Netlify dashboard, set VITE_WS_URL to the URL only (no KEY= prefix).",
+        )
+        return null
+    }
+    if (hasKeyPrefix) {
+        console.warn(
+            "[useCollaboration] VITE_WS_URL had a KEY=VALUE format — extracted the value automatically.\n" +
+                "Fix: in the Netlify dashboard, set VITE_WS_URL to just the URL: " +
+                resolved,
+        )
+    }
+    return resolved
+}
+
+const WS_URL = resolveWsUrl(import.meta.env.VITE_WS_URL)
 
 const CURSOR_COLORS = [
     "#e91e63",

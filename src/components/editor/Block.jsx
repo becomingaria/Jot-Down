@@ -5,6 +5,39 @@ import { CsvBlock } from "./CsvBlock"
 
 /* ──────────── helpers ──────────── */
 
+/**
+ * Wrap the current text selection inside `el` with an HTML element of `tag`.
+ * Returns true if a non-collapsed selection was wrapped, false otherwise.
+ * Used for inline formatting shortcuts (Cmd+B, Cmd+I, etc.).
+ */
+function wrapSelectionWithTag(el, tag) {
+  const sel = window.getSelection()
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return false
+  const range = sel.getRangeAt(0)
+  // Ensure the selection is actually inside this element
+  if (!el.contains(range.commonAncestorContainer)) return false
+  const selectedText = range.toString()
+  if (!selectedText) return false
+  range.deleteContents()
+  const node = document.createElement(tag)
+  node.textContent = selectedText
+  range.insertNode(node)
+  // Place caret just after the newly inserted element
+  const newRange = document.createRange()
+  newRange.setStartAfter(node)
+  newRange.collapse(true)
+  sel.removeAllRanges()
+  sel.addRange(newRange)
+  return true
+}
+
+const INLINE_FORMAT_KEYS = {
+  b: "strong",
+  i: "em",
+  u: "u",
+  e: "code",
+}
+
 /** Get the caret offset (number of characters from the start of the node). */
 function getCaretOffset(el) {
   const sel = window.getSelection()
@@ -268,6 +301,18 @@ export function Block({
         e.preventDefault()
         onEnter()
         return
+      }
+
+      // Inline formatting shortcuts: Cmd/Ctrl + B/I/U/E
+      // Skip for code blocks \u2014 they stay plain text
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && block.type !== BLOCK_TYPES.CODE) {
+        const tag = INLINE_FORMAT_KEYS[e.key.toLowerCase()]
+        if (tag && ref.current) {
+          e.preventDefault()
+          wrapSelectionWithTag(ref.current, tag)
+          onChange(ref.current.textContent)
+          return
+        }
       }
 
       // Tab / Shift+Tab — indent/outdent list items

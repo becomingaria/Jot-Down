@@ -4,6 +4,11 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  VITE_WS_URL = "wss://cudymqev68.execute-api.us-east-1.amazonaws.com/prod"
+  VITE_API_URL = "https://h3ft88t787.execute-api.us-east-1.amazonaws.com/prod"
+  VITE_COGNITO_REGION = "us-east-1"
+  VITE_COGNITO_USER_POOL_ID = "us-east-1_wYxmrXu23"
+  VITE_COGNITO_CLIENT_ID = "7366u5c3e1g1feoctv8fje8foe"
 
 [[redirects]]
   from = "/*"

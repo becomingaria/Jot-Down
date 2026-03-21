@@ -49,12 +49,48 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
   const redoStackRef = useRef([])
   const skipHistoryRef = useRef(false) // flag to skip push when restoring
 
-  // Push current blocks onto undo stack before a change
+  // Debounced undo: snapshot taken on first keystroke of a burst, pushed 500ms after last keystroke.
+  // This makes Cmd+Z undo whole words/phrases rather than single characters.
+  const undoSnapshotRef = useRef(null)  // pre-burst snapshot waiting to be committed
+  const undoDebouncerRef = useRef(null) // setTimeout handle
+
+  // Flush any pending debounced snapshot immediately (called before structural changes).
+  const flushUndoDebounce = useCallback(() => {
+    if (!undoDebouncerRef.current) return
+    clearTimeout(undoDebouncerRef.current)
+    undoDebouncerRef.current = null
+    if (undoSnapshotRef.current) {
+      undoStackRef.current.push(undoSnapshotRef.current)
+      if (undoStackRef.current.length > MAX_HISTORY) undoStackRef.current.shift()
+      undoSnapshotRef.current = null
+    }
+  }, [])
+
+  // Push current blocks onto undo stack before a structural change (Enter, Backspace, type change…)
   const pushUndo = useCallback((currentBlocks) => {
+    flushUndoDebounce() // commit any pending text burst first
     if (skipHistoryRef.current) return
     undoStackRef.current.push(JSON.parse(JSON.stringify(currentBlocks)))
     if (undoStackRef.current.length > MAX_HISTORY) undoStackRef.current.shift()
     redoStackRef.current = [] // clear redo on new action
+  }, [flushUndoDebounce])
+
+  // Queue a snapshot for text-input changes — debounced so rapid typing is one undo step.
+  const debouncedPushUndo = useCallback((currentBlocks) => {
+    if (!undoDebouncerRef.current) {
+      // First keystroke of this burst: capture pre-typing state and clear redo.
+      undoSnapshotRef.current = JSON.parse(JSON.stringify(currentBlocks))
+      redoStackRef.current = []
+    }
+    clearTimeout(undoDebouncerRef.current)
+    undoDebouncerRef.current = setTimeout(() => {
+      if (undoSnapshotRef.current) {
+        undoStackRef.current.push(undoSnapshotRef.current)
+        if (undoStackRef.current.length > MAX_HISTORY) undoStackRef.current.shift()
+        undoSnapshotRef.current = null
+      }
+      undoDebouncerRef.current = null
+    }, 500)
   }, [])
 
   // Persist to parent
@@ -151,7 +187,18 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
       }
     }
     window.addEventListener("keydown", handleKeyDown)
-    return () => window.removeEventListener("keydown", handleKeyDown)
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown)
+      // Flush any pending debounced undo snapshot on unmount so it isn't lost
+      if (undoDebouncerRef.current) {
+        clearTimeout(undoDebouncerRef.current)
+        if (undoSnapshotRef.current) {
+          undoStackRef.current.push(undoSnapshotRef.current)
+          undoSnapshotRef.current = null
+        }
+        undoDebouncerRef.current = null
+      }
+    }
   }, [handleUndo, handleRedo])
 
   /* ─── Block content change (fires on every keystroke via onInput) ─── */
@@ -171,8 +218,8 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
         return
       }
 
-      // Update block content
-      pushUndo(blocks)
+      // Update block content — debounce undo so fast typing is one undo step
+      debouncedPushUndo(blocks)
       const newBlocks = blocks.map((b) =>
         b.id === blockId ? { ...b, content: text } : b,
       )
@@ -198,7 +245,7 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
       }
       setSlashMenu(null)
     },
-    [blocks, persist, pushUndo],
+    [blocks, persist, pushUndo, debouncedPushUndo],
   )
 
   /* ─── Enter — split block ─── */
