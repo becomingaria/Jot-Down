@@ -38,6 +38,10 @@ function serializeGrid(headers, rows) {
 
 export function CsvBlock({ block, onChange, onFocus }) {
   const contentRef = useRef(block.content)
+  // Keep a stable ref to onChange so commit never needs to be recreated when
+  // the parent re-renders (e.g. during autosave status updates).
+  const onChangeRef = useRef(onChange)
+  useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
   const [headers, setHeaders] = useState(() => parseContent(block.content).headers)
   const [rows, setRows] = useState(() => parseContent(block.content).dataRows)
@@ -62,18 +66,20 @@ export function CsvBlock({ block, onChange, onFocus }) {
     }
   }, [editingHeader])
 
+  // commit is stable forever — uses onChangeRef so it never depends on the
+  // onChange prop reference (which changes on every parent render).
   const commit = useCallback((newHeaders, newRows) => {
     const csv = serializeGrid(newHeaders, newRows)
     contentRef.current = csv
-    onChange(csv)
-  }, [onChange])
+    onChangeRef.current(csv)
+  }, []) // intentionally empty — stability is the goal
 
   /* ── Row / column operations ─────────────────────────────────── */
 
   const handleRowsChange = useCallback((newRows) => {
     setRows(newRows)
     commit(headers, newRows)
-  }, [headers, commit])
+  }, [headers, commit]) // commit is now stable, so this only changes when headers change
 
   const addRow = () => {
     const newRow = { __id: rows.length, ...Object.fromEntries(headers.map((_, ci) => [`c${ci}`, ""])) }
