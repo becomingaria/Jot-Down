@@ -50,14 +50,15 @@ const CONN_CACHE_TTL_MS = 5000
 async function getFileConnections(wikiId, fileId) {
     const key = `${wikiId}#${fileId}`
     const cached = _connCache[key]
-    if (cached && Date.now() - cached.ts < CONN_CACHE_TTL_MS) return cached.items
+    if (cached && Date.now() - cached.ts < CONN_CACHE_TTL_MS)
+        return cached.items
     const result = await ddb.send(
         new QueryCommand({
             TableName: TABLE_NAME,
-            KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+            KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
             ExpressionAttributeValues: {
-                ':pk': `WSFILE#${wikiId}#${fileId}`,
-                ':sk': 'CONN#',
+                ":pk": `WSFILE#${wikiId}#${fileId}`,
+                ":sk": "CONN#",
             },
         }),
     )
@@ -411,16 +412,26 @@ async function handleTypingBroadcast(event) {
             .map(async ({ connectionId: connId }) => {
                 try {
                     await client.send(
-                        new PostToConnectionCommand({ ConnectionId: connId, Data: payload }),
+                        new PostToConnectionCommand({
+                            ConnectionId: connId,
+                            Data: payload,
+                        }),
                     )
                 } catch (err) {
                     if (err.$metadata?.httpStatusCode === 410) {
                         // Stale — remove and invalidate cache
                         delete _connCache[`${wikiId}#${fileId}`]
-                        await ddb.send(new DeleteCommand({
-                            TableName: TABLE_NAME,
-                            Key: { PK: `WSFILE#${wikiId}#${fileId}`, SK: `CONN#${connId}` },
-                        })).catch(() => {})
+                        await ddb
+                            .send(
+                                new DeleteCommand({
+                                    TableName: TABLE_NAME,
+                                    Key: {
+                                        PK: `WSFILE#${wikiId}#${fileId}`,
+                                        SK: `CONN#${connId}`,
+                                    },
+                                }),
+                            )
+                            .catch(() => {})
                     }
                 }
             }),
@@ -466,8 +477,11 @@ async function sendMessage(event, connectionId, payload) {
 export async function handler(event) {
     // EventBridge warmer ping — return immediately to keep the execution
     // environment alive without touching the WebSocket plumbing.
-    if (event.source === 'aws.events' || event['detail-type'] === 'Scheduled Event') {
-        return { statusCode: 200, body: 'warm' }
+    if (
+        event.source === "aws.events" ||
+        event["detail-type"] === "Scheduled Event"
+    ) {
+        return { statusCode: 200, body: "warm" }
     }
 
     const route = event.requestContext.routeKey

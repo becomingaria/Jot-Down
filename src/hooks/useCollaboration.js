@@ -175,7 +175,11 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                     // Lightweight typing indicator — show immediately without waiting
                     // for full content broadcast (sub-100ms on warm path)
                     if (msg.fromEmail !== userEmailRef.current) {
-                        setRemoteContent({ content: null, fromEmail: msg.fromEmail, typingOnly: true })
+                        setRemoteContent({
+                            content: null,
+                            fromEmail: msg.fromEmail,
+                            typingOnly: true,
+                        })
                     }
                 } else if (msg.type === "cursor.update" && isCurrentFile) {
                     const color = emailToColor(msg.fromEmail)

@@ -94,7 +94,8 @@ export class WebSocketConstruct extends Construct {
         // The handler returns immediately when it sees source === 'aws.events'.
         new events.Rule(this, "WsWarmerRule", {
             ruleName: "jot-down-ws-warmer",
-            description: "Keep jot-down-ws Lambda warm to avoid cold-start latency",
+            description:
+                "Keep jot-down-ws Lambda warm to avoid cold-start latency",
             schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
             targets: [new targets.LambdaFunction(this.handler)],
         })
