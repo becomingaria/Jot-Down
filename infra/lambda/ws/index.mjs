@@ -221,7 +221,10 @@ async function handleBroadcast(event) {
     const { wikiId, fileId, content, fromEmail } = body
 
     if (!wikiId || !fileId || content === undefined) {
-        return { statusCode: 400, body: "broadcast requires wikiId, fileId, content" }
+        return {
+            statusCode: 400,
+            body: "broadcast requires wikiId, fileId, content",
+        }
     }
 
     let connections
@@ -243,7 +246,88 @@ async function handleBroadcast(event) {
     }
 
     const payload = Buffer.from(
-        JSON.stringify({ type: "file.content", wikiId, fileId, content, fromEmail }),
+        JSON.stringify({
+            type: "file.content",
+            wikiId,
+            fileId,
+            content,
+            fromEmail,
+        }),
+    )
+    const client = mgmtClient(event)
+
+    await Promise.all(
+        connections
+            .filter((c) => c.connectionId !== connectionId)
+            .map(async ({ connectionId: connId }) => {
+                try {
+                    await client.send(
+                        new PostToConnectionCommand({
+                            ConnectionId: connId,
+                            Data: payload,
+                        }),
+                    )
+                } catch (err) {
+                    if (err.$metadata?.httpStatusCode === 410) {
+                        await ddb
+                            .send(
+                                new DeleteCommand({
+                                    TableName: TABLE_NAME,
+                                    Key: {
+                                        PK: `WSFILE#${wikiId}#${fileId}`,
+                                        SK: `CONN#${connId}`,
+                                    },
+                                }),
+                            )
+                            .catch(() => {})
+                        await ddb
+                            .send(
+                                new DeleteCommand({
+                                    TableName: TABLE_NAME,
+                                    Key: { PK: `WSCONN#${connId}`, SK: "META" },
+                                }),
+                            )
+                            .catch(() => {})
+                    } else {
+                        console.warn(
+                            `handleBroadcast: send failed conn=${connId}`,
+                            err.message,
+                        )
+                    }
+                }
+            }),
+    )
+
+    return { statusCode: 200, body: "OK" }
+}
+
+// ── cursor broadcast ──────────────────────────────────────────────────────────
+async function handleCursorBroadcast(event) {
+    const connectionId = event.requestContext.connectionId
+    const body = JSON.parse(event.body || "{}")
+    const { wikiId, fileId, blockId, offset, fromEmail } = body
+    if (!wikiId || !fileId) return { statusCode: 400, body: "missing fields" }
+
+    let connections = []
+    try {
+        const result = await ddb.send(
+            new QueryCommand({
+                TableName: TABLE_NAME,
+                KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
+                ExpressionAttributeValues: {
+                    ":pk": `WSFILE#${wikiId}#${fileId}`,
+                    ":sk": "CONN#",
+                },
+            }),
+        )
+        connections = result.Items || []
+    } catch (err) {
+        console.warn("handleCursorBroadcast: DDB query failed", err.message)
+        return { statusCode: 500, body: "Internal error" }
+    }
+
+    const payload = Buffer.from(
+        JSON.stringify({ type: "cursor.update", wikiId, fileId, blockId, offset: offset ?? 0, fromEmail }),
     )
     const client = mgmtClient(event)
 
@@ -257,16 +341,8 @@ async function handleBroadcast(event) {
                     )
                 } catch (err) {
                     if (err.$metadata?.httpStatusCode === 410) {
-                        await ddb.send(new DeleteCommand({
-                            TableName: TABLE_NAME,
-                            Key: { PK: `WSFILE#${wikiId}#${fileId}`, SK: `CONN#${connId}` },
-                        })).catch(() => {})
-                        await ddb.send(new DeleteCommand({
-                            TableName: TABLE_NAME,
-                            Key: { PK: `WSCONN#${connId}`, SK: "META" },
-                        })).catch(() => {})
-                    } else {
-                        console.warn(`handleBroadcast: send failed conn=${connId}`, err.message)
+                        await ddb.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { PK: `WSFILE#${wikiId}#${fileId}`, SK: `CONN#${connId}` } })).catch(() => {})
+                        await ddb.send(new DeleteCommand({ TableName: TABLE_NAME, Key: { PK: `WSCONN#${connId}`, SK: "META" } })).catch(() => {})
                     }
                 }
             }),
@@ -325,6 +401,8 @@ export async function handler(event) {
                     return handleSubscribe(event)
                 case "broadcast":
                     return handleBroadcast(event)
+                case "cursor":
+                    return handleCursorBroadcast(event)
                 case "ping":
                     return handlePing(event)
                 default:

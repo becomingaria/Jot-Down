@@ -135,11 +135,8 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const sendContentRef = useRef(null)
   const [exportAnchor, setExportAnchor] = useState(null)
 
-  // Conflict resolution state
-  const [conflictDialogOpen, setConflictDialogOpen] = useState(false)
-  const [conflictRemoteContent, setConflictRemoteContent] = useState("")
-  const [conflictRemoteRev, setConflictRemoteRev] = useState(null)
   const lastSyncedRevRef = useRef(null)
+  const [externalLiveContent, setExternalLiveContent] = useState(null)
 
   // Editable heading state
   const [editingName, setEditingName] = useState(false)
@@ -236,13 +233,13 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
         if (!latest?.content) return
 
         if (latest.content !== contentRef.current) {
+          setExternalLiveContent(latest.content)
           setContent(latest.content)
           contentRef.current = latest.content
           setHasChanges(false)
           setSaveStatus("saved")
           setStatusMessage("Live update received")
           setRemoteSyncMessage("☁ Updated by collaborator")
-          setEditorKey((k) => k + 1)
 
           if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
           remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3000)
@@ -270,70 +267,82 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const saveContentRef = useRef(saveContent)     // stable ref to fire-and-forget save
 
   // ── Real-time collaboration via WebSocket ────────────────────────────────
-  const { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent } = useCollaboration({
+  const { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent, remoteCursors, sendCursor } = useCollaboration({
     wikiId,
     fileId,
     accessToken,
     userEmail: user?.email,
   })
-  // Keep a stable ref so handleContentChange callback can use it without stale closures
+  // Keep stable refs so callbacks can use them without stale closures
   sendContentRef.current = sendContent
+  const sendCursorRef = useRef(null)
+  sendCursorRef.current = sendCursor
 
-  // Keystroke-level remote content — apply immediately if local user is idle
+  // Keystroke-level remote content — last-write-wins, applied via externalContent (no remount)
   useEffect(() => {
     if (!remoteContent) return
     clearRemoteContent()
 
-    // If the local user is actively typing (pending autosave), their version wins —
-    // skip the update so we don't clobber their work mid-sentence.
-    if (saveTimeoutRef.current) return
-
     const { content: incoming, fromEmail } = remoteContent
-    if (incoming === contentRef.current) return // already in sync
+    if (incoming === contentRef.current) return
 
+    setExternalLiveContent(incoming)
     setContent(incoming)
     contentRef.current = incoming
-    setEditorKey((k) => k + 1)
     setRemoteSyncMessage(`⚡ ${fromEmail || "collaborator"} is typing…`)
     if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
     remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 2500)
   }, [remoteContent]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // When a remote file.update arrives (authoritative save): apply directly if no local unsaved
-  // changes, otherwise surface a conflict resolution dialog.
+  // Authoritative save notification — always apply (last-write-wins)
   useEffect(() => {
     if (!remoteUpdate) return
     clearRemoteUpdate()
 
     const incoming = remoteUpdate
-
-    // Fetch the full updated content from the server
     apiClient.getFile(wikiId, fileId).then((latest) => {
       if (!latest?.content) return
-
-      const hasLocalChanges = contentRef.current !== fileContentRef.current
-
-      if (!hasLocalChanges) {
-        // No unsaved edits — apply silently
-        setContent(latest.content)
-        contentRef.current = latest.content
-        fileContentRef.current = latest.content
-        lastSyncedRevRef.current = incoming.rev
-        setHasChanges(false)
-        setSaveStatus("saved")
-        setStatusMessage("Live update received")
-        setRemoteSyncMessage(`☁ Updated by ${incoming.updatedBy || "collaborator"}`)
-        if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
-        remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3500)
-        setEditorKey((k) => k + 1)
-      } else {
-        // Local unsaved changes — ask the user what to do
-        setConflictRemoteContent(latest.content)
-        setConflictRemoteRev(incoming.rev)
-        setConflictDialogOpen(true)
-      }
+      setExternalLiveContent(latest.content)
+      setContent(latest.content)
+      contentRef.current = latest.content
+      fileContentRef.current = latest.content
+      lastSyncedRevRef.current = incoming.rev
+      setHasChanges(false)
+      setSaveStatus("saved")
+      setStatusMessage("Live update received")
+      setRemoteSyncMessage(`☁ Saved by ${incoming.updatedBy || "collaborator"}`)
+      if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
+      remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3500)
     }).catch((err) => console.warn("WS: failed to fetch updated content", err))
   }, [remoteUpdate]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Track local cursor position and broadcast to collaborators
+  useEffect(() => {
+    if (!wikiId || !fileId) return
+    const handleSelChange = () => {
+      const sel = window.getSelection()
+      if (!sel || sel.rangeCount === 0) return
+      const range = sel.getRangeAt(0)
+      const node = range.startContainer
+      // Walk up from node to find [data-block-id]
+      let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+      while (el && !el.dataset?.blockId) el = el.parentElement
+      if (!el) return
+      const blockId = el.dataset.blockId
+      // Count characters before cursor in the .block-editable
+      const editable = el.querySelector('.block-editable') || el
+      const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
+      let offset = 0, n = walker.nextNode()
+      while (n) {
+        if (n === range.startContainer) { offset += range.startOffset; break }
+        offset += n.textContent.length
+        n = walker.nextNode()
+      }
+      sendCursorRef.current?.(blockId, offset)
+    }
+    document.addEventListener('selectionchange', handleSelChange)
+    return () => document.removeEventListener('selectionchange', handleSelChange)
+  }, [wikiId, fileId])
 
   // Ensure API client has valid auth token for version endpoints
   useEffect(() => {
@@ -986,63 +995,6 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           </DialogActions>
         </Dialog>
 
-        {/* Conflict resolution dialog — shown when a remote update arrives while
-            the user has local unsaved changes. */}
-        <Dialog open={conflictDialogOpen} maxWidth="sm" fullWidth>
-          <DialogTitle>Conflict Detected</DialogTitle>
-          <DialogContent>
-            <Typography variant="body2" gutterBottom>
-              A collaborator saved changes to this file while you had unsaved edits.
-              Choose how to resolve the conflict:
-            </Typography>
-            <Stack spacing={1} sx={{ mt: 1 }}>
-              <Box sx={{ p: 1.5, border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
-                <Typography variant="caption" color="text.secondary" fontWeight={600}>YOUR version</Typography>
-                <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.75rem", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto", mt: 0.5 }}>
-                  {contentRef.current?.slice(0, 400)}{contentRef.current?.length > 400 ? "…" : ""}
-                </Typography>
-              </Box>
-              <Box sx={{ p: 1.5, border: "1px solid", borderColor: "primary.light", borderRadius: 1 }}>
-                <Typography variant="caption" color="primary" fontWeight={600}>THEIRS</Typography>
-                <Typography variant="body2" sx={{ fontFamily: "monospace", fontSize: "0.75rem", whiteSpace: "pre-wrap", maxHeight: 120, overflow: "auto", mt: 0.5 }}>
-                  {conflictRemoteContent?.slice(0, 400)}{conflictRemoteContent?.length > 400 ? "…" : ""}
-                </Typography>
-              </Box>
-            </Stack>
-          </DialogContent>
-          <DialogActions>
-            <Button
-              onClick={() => {
-                // Keep mine — discard remote, re-save local
-                setConflictDialogOpen(false)
-                fileContentRef.current = conflictRemoteContent // avoid re-prompting
-                lastSyncedRevRef.current = conflictRemoteRev
-                doSave(contentRef.current)
-              }}
-            >
-              Keep mine
-            </Button>
-            <Button
-              color="primary"
-              variant="contained"
-              onClick={() => {
-                // Accept theirs — overwrite local with remote
-                setContent(conflictRemoteContent)
-                contentRef.current = conflictRemoteContent
-                fileContentRef.current = conflictRemoteContent
-                lastSyncedRevRef.current = conflictRemoteRev
-                setHasChanges(false)
-                setSaveStatus("saved")
-                setStatusMessage("Accepted remote version")
-                setEditorKey((k) => k + 1)
-                setConflictDialogOpen(false)
-              }}
-            >
-              Accept theirs
-            </Button>
-          </DialogActions>
-        </Dialog>
-
         <IconButton
           onClick={handleManualSave}
           disabled={!hasChanges || saving}
@@ -1085,7 +1037,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
             <div className="markdown-preview">{renderPreview()}</div>
           </Paper>
         ) : (
-          <BlockEditor key={`${fileId}-${editorKey}`} initialContent={content || ""} onChange={handleContentChange} wikiId={wikiId} onFileSelect={onFileSelect} />
+          <BlockEditor key={`${fileId}-${editorKey}`} initialContent={content || ""} externalContent={externalLiveContent} remoteCursors={remoteCursors} onChange={handleContentChange} wikiId={wikiId} onFileSelect={onFileSelect} fileId={fileId} />
         )}
       </Box>
     </Box>

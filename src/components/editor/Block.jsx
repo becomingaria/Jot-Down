@@ -101,6 +101,7 @@ export function Block({
   wikiId,
   fileId,
   isOnlyBlock,
+  remoteCursors,  // array of { blockId, offset, color, email } for this block
 }) {
   const ref = useRef(null)
   const imageCaptionRef = useRef(null)
@@ -127,6 +128,72 @@ export function Block({
       setImageSize(null)
     }
   }, [block.type, block.imageUrl, fileId, wikiId])
+
+  /* ---- Render remote cursors as fixed-position overlays on document.body ---- */
+  useEffect(() => {
+    const blockId = block.id
+    const cleanup = () =>
+      document.querySelectorAll(`.collab-cursor[data-block="${blockId}"]`).forEach(el => el.remove())
+    cleanup()
+
+    if (!remoteCursors?.length || !ref.current) return cleanup
+
+    for (const cursor of remoteCursors) {
+      const editable = ref.current
+      const range = document.createRange()
+      const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
+      let count = 0, placed = false, node = walker.nextNode()
+      while (node) {
+        const len = node.textContent.length
+        if (count + len >= cursor.offset) {
+          range.setStart(node, cursor.offset - count)
+          range.collapse(true)
+          placed = true
+          break
+        }
+        count += len
+        node = walker.nextNode()
+      }
+      if (!placed) { range.selectNodeContents(editable); range.collapse(false) }
+
+      const rect = range.getBoundingClientRect()
+      if (rect.width === 0 && rect.height === 0) continue
+
+      const caret = document.createElement('div')
+      caret.className = 'collab-cursor'
+      caret.setAttribute('data-block', blockId)
+      caret.style.cssText = [
+        'position:fixed',
+        `left:${rect.left}px`,
+        `top:${rect.top}px`,
+        'width:2px',
+        `height:${Math.max(rect.height, 18)}px`,
+        `background:${cursor.color}`,
+        'pointer-events:none',
+        'z-index:9999',
+        'border-radius:1px',
+      ].join(';')
+
+      const label = document.createElement('span')
+      label.style.cssText = [
+        'position:absolute',
+        'top:-18px',
+        'left:0',
+        `background:${cursor.color}`,
+        'color:#fff',
+        'font-size:10px',
+        'font-family:sans-serif',
+        'padding:1px 4px',
+        'border-radius:3px 3px 3px 0',
+        'white-space:nowrap',
+      ].join(';')
+      label.textContent = cursor.email?.split('@')[0] || 'user'
+      caret.appendChild(label)
+      document.body.appendChild(caret)
+    }
+
+    return cleanup
+  }, [remoteCursors, block.id, block.content])
 
   /* ---- Sync DOM text from React state (only when we gain focus or content
           is changed externally, e.g. after merge/split/slash-select) ---- */

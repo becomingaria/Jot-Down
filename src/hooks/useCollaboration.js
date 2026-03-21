@@ -22,6 +22,14 @@ import { useState, useEffect, useRef, useCallback } from "react"
 
 const WS_URL = import.meta.env.VITE_WS_URL
 
+const CURSOR_COLORS = ['#e91e63','#9c27b0','#2196f3','#009688','#ff5722','#795548','#ff9800','#3f51b5']
+
+function emailToColor(email) {
+    let h = 0
+    for (let i = 0; i < (email || '').length; i++) h = (email.charCodeAt(i) + ((h << 5) - h)) | 0
+    return CURSOR_COLORS[Math.abs(h) % CURSOR_COLORS.length]
+}
+
 /**
  * @param {object} params
  * @param {string|null} params.wikiId
@@ -32,6 +40,7 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
     const [connectionStatus, setConnectionStatus] = useState("closed")
     const [remoteUpdate, setRemoteUpdate] = useState(null)
     const [remoteContent, setRemoteContent] = useState(null)
+    const [remoteCursors, setRemoteCursors] = useState({}) // keyed by email
 
     const wsRef = useRef(null)
     const reconnectTimerRef = useRef(null)
@@ -40,10 +49,12 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
     const mountedRef = useRef(true)
     const activeFileRef = useRef({ wikiId, fileId })
     const userEmailRef = useRef(userEmail)
+    const cursorExpireTimers = useRef({})
 
     // Keep refs current for use inside WebSocket callbacks
     useEffect(() => {
         activeFileRef.current = { wikiId, fileId }
+        setRemoteCursors({}) // clear cursors when file changes
     }, [wikiId, fileId])
 
     useEffect(() => {
@@ -53,10 +64,7 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
     const clearRemoteUpdate = useCallback(() => setRemoteUpdate(null), [])
     const clearRemoteContent = useCallback(() => setRemoteContent(null), [])
 
-    /**
-     * Send current editor content to all other subscribers via WebSocket.
-     * Called on every keystroke (debounced by the caller).
-     */
+    /** Send current editor content to all other subscribers (called on keystroke debounce). */
     const sendContent = useCallback((content) => {
         if (wsRef.current?.readyState !== WebSocket.OPEN) return
         wsRef.current.send(
@@ -65,6 +73,21 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                 wikiId: activeFileRef.current.wikiId,
                 fileId: activeFileRef.current.fileId,
                 content,
+                fromEmail: userEmailRef.current || "collaborator",
+            }),
+        )
+    }, [])
+
+    /** Broadcast cursor position to all other subscribers. */
+    const sendCursor = useCallback((blockId, offset) => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return
+        wsRef.current.send(
+            JSON.stringify({
+                action: "cursor",
+                wikiId: activeFileRef.current.wikiId,
+                fileId: activeFileRef.current.fileId,
+                blockId,
+                offset,
                 fromEmail: userEmailRef.current || "collaborator",
             }),
         )
@@ -125,6 +148,17 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                 } else if (msg.type === "file.content" && isCurrentFile) {
                     // Keystroke-level content broadcast — apply directly, no S3 fetch
                     setRemoteContent(msg)
+                } else if (msg.type === "cursor.update" && isCurrentFile) {
+                    const color = emailToColor(msg.fromEmail)
+                    setRemoteCursors(prev => ({
+                        ...prev,
+                        [msg.fromEmail]: { blockId: msg.blockId, offset: msg.offset, color, email: msg.fromEmail },
+                    }))
+                    // Auto-expire cursor after 5 seconds of inactivity
+                    if (cursorExpireTimers.current[msg.fromEmail]) clearTimeout(cursorExpireTimers.current[msg.fromEmail])
+                    cursorExpireTimers.current[msg.fromEmail] = setTimeout(() => {
+                        setRemoteCursors(prev => { const n = { ...prev }; delete n[msg.fromEmail]; return n })
+                    }, 5000)
                 }
                 // 'subscribed', 'pong', 'error' — no state needed
             } catch {
@@ -169,8 +203,20 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                 wsRef.current = null
             }
             setConnectionStatus("closed")
+            setRemoteCursors({})
+            Object.values(cursorExpireTimers.current).forEach(clearTimeout)
+            cursorExpireTimers.current = {}
         }
     }, [wikiId, fileId, accessToken]) // eslint-disable-line react-hooks/exhaustive-deps
 
-    return { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent }
+    return {
+        connectionStatus,
+        remoteUpdate,
+        clearRemoteUpdate,
+        remoteContent,
+        clearRemoteContent,
+        sendContent,
+        remoteCursors,
+        sendCursor,
+    }
 }

@@ -31,7 +31,7 @@ const MAX_HISTORY = 50
 
 /* ─── Component ──────────────────────────────────────────────────── */
 
-export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelect, fileId }) {
+export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelect, fileId, externalContent, remoteCursors }) {
   const [blocks, setBlocks] = useState(() => markdownToBlocks(initialContent))
   const [activeBlockId, setActiveBlockId] = useState(blocks[0]?.id)
   const [slashMenu, setSlashMenu] = useState(null)
@@ -92,6 +92,12 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
       })
     }
   }, [blocks])
+
+  // Apply external live content (remote keystroke/save) without triggering onChange
+  useEffect(() => {
+    if (externalContent == null) return
+    setBlocks(markdownToBlocks(externalContent))
+  }, [externalContent])
 
   /* ─── Undo / Redo handlers ─── */
   const handleUndo = useCallback(() => {
@@ -791,6 +797,7 @@ export function BlockEditor({ initialContent = "", onChange, wikiId, onFileSelec
           wikiId={wikiId}
           fileId={fileId}
           isOnlyBlock={blocks.length === 1}
+          remoteCursors={Object.values(remoteCursors || {}).filter(c => c.blockId === block.id)}
         />
       ))}
       {slashMenu && !pageLinkOpen && (
