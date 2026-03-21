@@ -41,6 +41,31 @@ const TABLE_NAME = process.env.TABLE_NAME
 // TTL: 2 hours from now
 const ttlFromNow = () => Math.floor(Date.now() / 1000) + 7200
 
+// ── Connection list cache ─────────────────────────────────────────────────────
+// Caches DDB query results per file for 5 s so broadcast/cursor/typing actions
+// don't each pay a full DDB round-trip when hit in quick succession.
+const _connCache = {}
+const CONN_CACHE_TTL_MS = 5000
+
+async function getFileConnections(wikiId, fileId) {
+    const key = `${wikiId}#${fileId}`
+    const cached = _connCache[key]
+    if (cached && Date.now() - cached.ts < CONN_CACHE_TTL_MS) return cached.items
+    const result = await ddb.send(
+        new QueryCommand({
+            TableName: TABLE_NAME,
+            KeyConditionExpression: 'PK = :pk AND begins_with(SK, :sk)',
+            ExpressionAttributeValues: {
+                ':pk': `WSFILE#${wikiId}#${fileId}`,
+                ':sk': 'CONN#',
+            },
+        }),
+    )
+    const items = result.Items || []
+    _connCache[key] = { items, ts: Date.now() }
+    return items
+}
+
 function domainOf(event) {
     return event.requestContext.domainName
 }
@@ -230,17 +255,7 @@ async function handleBroadcast(event) {
 
     let connections
     try {
-        const result = await ddb.send(
-            new QueryCommand({
-                TableName: TABLE_NAME,
-                KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                ExpressionAttributeValues: {
-                    ":pk": `WSFILE#${wikiId}#${fileId}`,
-                    ":sk": "CONN#",
-                },
-            }),
-        )
-        connections = result.Items || []
+        connections = await getFileConnections(wikiId, fileId)
     } catch (err) {
         console.warn("handleBroadcast: DDB query failed", err.message)
         return { statusCode: 500, body: "Internal error" }
@@ -311,17 +326,7 @@ async function handleCursorBroadcast(event) {
 
     let connections = []
     try {
-        const result = await ddb.send(
-            new QueryCommand({
-                TableName: TABLE_NAME,
-                KeyConditionExpression: "PK = :pk AND begins_with(SK, :sk)",
-                ExpressionAttributeValues: {
-                    ":pk": `WSFILE#${wikiId}#${fileId}`,
-                    ":sk": "CONN#",
-                },
-            }),
-        )
-        connections = result.Items || []
+        connections = await getFileConnections(wikiId, fileId)
     } catch (err) {
         console.warn("handleCursorBroadcast: DDB query failed", err.message)
         return { statusCode: 500, body: "Internal error" }
@@ -379,6 +384,50 @@ async function handleCursorBroadcast(event) {
     return { statusCode: 200, body: "OK" }
 }
 
+// ── typing indicator ─────────────────────────────────────────────────────────
+// Lightweight broadcast — no content payload, just signals that a user is
+// actively typing. Uses the cached connection list so there's no extra DDB read.
+async function handleTypingBroadcast(event) {
+    const connectionId = event.requestContext.connectionId
+    const body = JSON.parse(event.body || "{}")
+    const { wikiId, fileId, fromEmail } = body
+    if (!wikiId || !fileId) return { statusCode: 400, body: "missing fields" }
+
+    let connections = []
+    try {
+        connections = await getFileConnections(wikiId, fileId)
+    } catch (err) {
+        console.warn("handleTypingBroadcast: DDB query failed", err.message)
+        return { statusCode: 500, body: "Internal error" }
+    }
+
+    const payload = Buffer.from(
+        JSON.stringify({ type: "typing.update", wikiId, fileId, fromEmail }),
+    )
+    const client = mgmtClient(event)
+    await Promise.all(
+        connections
+            .filter((c) => c.connectionId !== connectionId)
+            .map(async ({ connectionId: connId }) => {
+                try {
+                    await client.send(
+                        new PostToConnectionCommand({ ConnectionId: connId, Data: payload }),
+                    )
+                } catch (err) {
+                    if (err.$metadata?.httpStatusCode === 410) {
+                        // Stale — remove and invalidate cache
+                        delete _connCache[`${wikiId}#${fileId}`]
+                        await ddb.send(new DeleteCommand({
+                            TableName: TABLE_NAME,
+                            Key: { PK: `WSFILE#${wikiId}#${fileId}`, SK: `CONN#${connId}` },
+                        })).catch(() => {})
+                    }
+                }
+            }),
+    )
+    return { statusCode: 200, body: "OK" }
+}
+
 // ── ping / keep-alive ─────────────────────────────────────────────────────────
 async function handlePing(event) {
     const connectionId = event.requestContext.connectionId
@@ -415,6 +464,12 @@ async function sendMessage(event, connectionId, payload) {
 
 // ── handler entry point ───────────────────────────────────────────────────────
 export async function handler(event) {
+    // EventBridge warmer ping — return immediately to keep the execution
+    // environment alive without touching the WebSocket plumbing.
+    if (event.source === 'aws.events' || event['detail-type'] === 'Scheduled Event') {
+        return { statusCode: 200, body: 'warm' }
+    }
+
     const route = event.requestContext.routeKey
 
     switch (route) {
@@ -431,6 +486,8 @@ export async function handler(event) {
                     return handleBroadcast(event)
                 case "cursor":
                     return handleCursorBroadcast(event)
+                case "typing":
+                    return handleTypingBroadcast(event)
                 case "ping":
                     return handlePing(event)
                 default:

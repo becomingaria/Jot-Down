@@ -103,6 +103,19 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
         )
     }, [])
 
+    /** Broadcast a typing indicator (no content). Throttle calls on the sender side. */
+    const sendTyping = useCallback(() => {
+        if (wsRef.current?.readyState !== WebSocket.OPEN) return
+        wsRef.current.send(
+            JSON.stringify({
+                action: "typing",
+                wikiId: activeFileRef.current.wikiId,
+                fileId: activeFileRef.current.fileId,
+                fromEmail: userEmailRef.current || "collaborator",
+            }),
+        )
+    }, [])
+
     const startPing = useCallback((ws) => {
         if (pingTimerRef.current) clearInterval(pingTimerRef.current)
         pingTimerRef.current = setInterval(
@@ -158,6 +171,12 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                 } else if (msg.type === "file.content" && isCurrentFile) {
                     // Keystroke-level content broadcast — apply directly, no S3 fetch
                     setRemoteContent(msg)
+                } else if (msg.type === "typing.update" && isCurrentFile) {
+                    // Lightweight typing indicator — show immediately without waiting
+                    // for full content broadcast (sub-100ms on warm path)
+                    if (msg.fromEmail !== userEmailRef.current) {
+                        setRemoteContent({ content: null, fromEmail: msg.fromEmail, typingOnly: true })
+                    }
                 } else if (msg.type === "cursor.update" && isCurrentFile) {
                     const color = emailToColor(msg.fromEmail)
                     setRemoteCursors((prev) => ({
@@ -241,5 +260,6 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
         sendContent,
         remoteCursors,
         sendCursor,
+        sendTyping,
     }
 }

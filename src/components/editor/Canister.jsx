@@ -288,7 +288,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const saveContentRef = useRef(saveContent)     // stable ref to fire-and-forget save
 
   // ── Real-time collaboration via WebSocket ────────────────────────────────
-  const { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent, remoteCursors, sendCursor } = useCollaboration({
+  const { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent, remoteCursors, sendCursor, sendTyping } = useCollaboration({
     wikiId,
     fileId,
     accessToken,
@@ -298,25 +298,29 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   sendContentRef.current = sendContent
   const sendCursorRef = useRef(null)
   sendCursorRef.current = sendCursor
+  const sendTypingRef = useRef(null)
+  sendTypingRef.current = sendTyping
+  const typingPingLastRef = useRef(0)    // timestamp of last typing ping sent
+  const cursorThrottleRef = useRef(null) // throttle handle for selectionchange
 
   // Keystroke-level remote content — last-write-wins, applied via externalContent (no remount)
   useEffect(() => {
     if (!remoteContent) return
     clearRemoteContent()
 
-    const { content: incoming, fromEmail } = remoteContent
-    if (incoming === contentRef.current) return
+    const { content: incoming, fromEmail, typingOnly } = remoteContent
 
-    setExternalLiveContent(incoming)
-    setContent(incoming)
-    contentRef.current = incoming
-
-    // Show "X is typing..." — reset timer on every keystroke so it persists
-    // until 3 s after they stop typing
+    // Typing-only ping: just show the indicator, don’t update content
     const displayName = fromEmail?.split('@')[0] || 'collaborator'
     setRemoteSyncMessage(`${displayName} is typing…`)
     if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
     remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3000)
+
+    if (typingOnly || incoming === null || incoming === contentRef.current) return
+
+    setExternalLiveContent(incoming)
+    setContent(incoming)
+    contentRef.current = incoming
   }, [remoteContent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Authoritative save notification — always apply (last-write-wins)
@@ -345,31 +349,40 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   useEffect(() => {
     if (!wikiId || !fileId) return
     const handleSelChange = () => {
-      const sel = window.getSelection()
-      if (!sel || sel.rangeCount === 0) return
-      const range = sel.getRangeAt(0)
-      const node = range.startContainer
-      // Walk up from node to find [data-block-id]
-      let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
-      while (el && !el.dataset?.blockId) el = el.parentElement
-      if (!el) return
-      // Use block index (position) — stable across users; UUIDs differ per client
-      const allBlocks = Array.from(document.querySelectorAll('[data-block-id]'))
-      const blockIndex = allBlocks.indexOf(el)
-      if (blockIndex === -1) return
-      // Count characters before cursor in the .block-editable
-      const editable = el.querySelector('.block-editable') || el
-      const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
-      let offset = 0, n = walker.nextNode()
-      while (n) {
-        if (n === range.startContainer) { offset += range.startOffset; break }
-        offset += n.textContent.length
-        n = walker.nextNode()
-      }
-      sendCursorRef.current?.(blockIndex, offset)
+      // Throttle: fire at most once per 100 ms to avoid a Lambda invocation
+      // on every keystroke/arrow-key.
+      if (cursorThrottleRef.current) return
+      cursorThrottleRef.current = setTimeout(() => {
+        cursorThrottleRef.current = null
+        const sel = window.getSelection()
+        if (!sel || sel.rangeCount === 0) return
+        const range = sel.getRangeAt(0)
+        const node = range.startContainer
+        // Walk up from node to find [data-block-id]
+        let el = node.nodeType === Node.TEXT_NODE ? node.parentElement : node
+        while (el && !el.dataset?.blockId) el = el.parentElement
+        if (!el) return
+        // Use block index (position) — stable across users; UUIDs differ per client
+        const allBlocks = Array.from(document.querySelectorAll('[data-block-id]'))
+        const blockIndex = allBlocks.indexOf(el)
+        if (blockIndex === -1) return
+        // Count characters before cursor in the .block-editable
+        const editable = el.querySelector('.block-editable') || el
+        const walker = document.createTreeWalker(editable, NodeFilter.SHOW_TEXT)
+        let offset = 0, n = walker.nextNode()
+        while (n) {
+          if (n === range.startContainer) { offset += range.startOffset; break }
+          offset += n.textContent.length
+          n = walker.nextNode()
+        }
+        sendCursorRef.current?.(blockIndex, offset)
+      }, 100)
     }
     document.addEventListener('selectionchange', handleSelChange)
-    return () => document.removeEventListener('selectionchange', handleSelChange)
+    return () => {
+      document.removeEventListener('selectionchange', handleSelChange)
+      if (cursorThrottleRef.current) clearTimeout(cursorThrottleRef.current)
+    }
   }, [wikiId, fileId])
 
   // Ensure API client has valid auth token for version endpoints
@@ -477,6 +490,14 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     wsBroadcastTimerRef.current = setTimeout(() => {
       sendContentRef.current?.(newContent)
     }, 150)
+
+    // Typing ping: fire immediately (at most once per second) so remote users
+    // see "X is typing…" before the 150 ms content debounce fires.
+    const now = Date.now()
+    if (now - typingPingLastRef.current > 1000) {
+      typingPingLastRef.current = now
+      sendTypingRef.current?.()
+    }
 
     saveTimeoutRef.current = setTimeout(() => {
       doSave(contentRef.current)

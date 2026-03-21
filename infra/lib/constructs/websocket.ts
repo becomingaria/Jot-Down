@@ -3,6 +3,8 @@ import * as lambda from "aws-cdk-lib/aws-lambda"
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb"
 import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2"
 import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations"
+import * as events from "aws-cdk-lib/aws-events"
+import * as targets from "aws-cdk-lib/aws-events-targets"
 import * as path from "path"
 import { Construct } from "constructs"
 
@@ -86,6 +88,16 @@ export class WebSocketConstruct extends Construct {
                 ],
             }),
         )
+
+        // Warmer: EventBridge rule fires every 5 minutes to keep the Lambda
+        // execution environment alive (free tier: 1M events/month; this uses ~8,640).
+        // The handler returns immediately when it sees source === 'aws.events'.
+        new events.Rule(this, "WsWarmerRule", {
+            ruleName: "jot-down-ws-warmer",
+            description: "Keep jot-down-ws Lambda warm to avoid cold-start latency",
+            schedule: events.Schedule.rate(cdk.Duration.minutes(5)),
+            targets: [new targets.LambdaFunction(this.handler)],
+        })
     }
 
     /**
