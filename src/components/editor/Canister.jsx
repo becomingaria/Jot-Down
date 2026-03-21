@@ -175,6 +175,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   useEffect(() => {
     if (file?.fileId === fileId && file?.content !== undefined && wikiId && fileId) {
       setContent(file.content)
+      setExternalLiveContent(file.content)
       contentRef.current = file.content  // keep ref in sync so unmount-save is accurate
       setHasChanges(false)
       editCountRef.current = 0
@@ -186,6 +187,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           setHasDraft(true)
           setDraftContent(saved)
           setContent(saved)
+          setExternalLiveContent(saved)
           contentRef.current = saved
           setHasChanges(true)
           setSaveStatus("unsaved")
