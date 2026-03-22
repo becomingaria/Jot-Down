@@ -141,6 +141,16 @@ export function markdownToBlocks(markdown) {
         blocks.push(createBlock(BLOCK_TYPES.PARAGRAPH, ""))
     }
 
+    // Preserve a trailing blank block: if the source markdown ends with a newline
+    // it means the last visible block was an empty paragraph (e.g. the user pressed
+    // Enter and the cursor is sitting in a blank line).  Without this, the round-trip
+    //   [para("")]  →  blocksToMarkdown  →  "…\n"
+    //   "…\n"      →  markdownToBlocks  →  (blank line skipped)
+    // would silently drop that block on the next sync and steal focus.
+    if (/\n$/.test(markdown)) {
+        blocks.push(createBlock(BLOCK_TYPES.PARAGRAPH, ""))
+    }
+
     return blocks
 }
 

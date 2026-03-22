@@ -43,6 +43,9 @@ function BlockEditorInner({ initialContent = "", onChange, wikiId, onFileSelect,
 
   const rootRef = useRef(null)
   const clipboardRef = useRef(null)
+  // Track the last markdown string applied from externalContent so we can
+  // skip no-op updates (e.g. own-save echo) that would rebuild blocks and drop focus.
+  const lastAppliedExternalRef = useRef(initialContent)
 
   // Undo/redo stacks
   const undoStackRef = useRef([])
@@ -132,6 +135,10 @@ function BlockEditorInner({ initialContent = "", onChange, wikiId, onFileSelect,
   // Apply external live content (remote keystroke/save) without triggering onChange
   useEffect(() => {
     if (externalContent == null) return
+    // Skip if this exact content was already applied — prevents own-save echo
+    // from rebuilding blocks and dropping the user's cursor.
+    if (externalContent === lastAppliedExternalRef.current) return
+    lastAppliedExternalRef.current = externalContent
     setBlocks(markdownToBlocks(externalContent))
   }, [externalContent])
 

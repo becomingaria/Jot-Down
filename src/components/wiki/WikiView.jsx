@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import {
   Box,
@@ -55,18 +55,18 @@ export function WikiView() {
   const debugLayout = false
 
   // Navigate to a file — updates the URL (back button, bookmarks, deep links all work)
-  const navigateToFile = (id) => {
+  const navigateToFile = useCallback((id) => {
     if (id) navigate(buildFileUrl(wikiId, id, files, folders))
     else navigate(`/wikis/${wikiId}`)
-  }
+  }, [navigate, wikiId, files, folders])
 
   // Called by Canister after a file is renamed — refreshes both lists and re-navigates
-  const handleRename = async () => {
+  const handleRename = useCallback(async () => {
     const freshFiles = await refetchFiles()
     setFileTreeRefresh((n) => n + 1)
     if (selectedFileId && freshFiles)
       navigate(buildFileUrl(wikiId, selectedFileId, freshFiles, folders), { replace: true })
-  }
+  }, [refetchFiles, selectedFileId, navigate, wikiId, folders])
 
   // Determine if the selected file is a non-page asset
   const selectedFile = files.find((f) => f.fileId === selectedFileId)

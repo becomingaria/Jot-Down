@@ -93,6 +93,7 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
     const wsRef = useRef(null)
     const reconnectTimerRef = useRef(null)
     const pingTimerRef = useRef(null)
+    const connectTimeoutRef = useRef(null)
     const reconnectDelayRef = useRef(1000)
     const mountedRef = useRef(true)
     const activeFileRef = useRef({ wikiId, fileId })
@@ -168,9 +169,20 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
 
     const connect = useCallback(() => {
         if (!WS_URL || !accessToken || !wikiId || !fileId) return
+
+        // If the current socket is still mid-handshake, don't replace it.
+        // The connect timeout below will close it after 10 s and trigger onclose → backoff.
+        if (wsRef.current?.readyState === WebSocket.CONNECTING) return
+
         if (wsRef.current) {
             wsRef.current.onclose = null // prevent reconnect loop from old socket
             wsRef.current.close()
+        }
+
+        // Cancel any leftover connect timeout from the previous socket
+        if (connectTimeoutRef.current) {
+            clearTimeout(connectTimeoutRef.current)
+            connectTimeoutRef.current = null
         }
 
         setConnectionStatus("connecting")
@@ -179,7 +191,20 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
         const ws = new WebSocket(url)
         wsRef.current = ws
 
+        // If the socket stays in CONNECTING for 10 s, close it so onclose fires
+        // and the exponential back-off cycle can continue without flooding connect() calls.
+        connectTimeoutRef.current = setTimeout(() => {
+            connectTimeoutRef.current = null
+            if (ws.readyState === WebSocket.CONNECTING) {
+                ws.close()
+            }
+        }, 10000)
+
         ws.onopen = () => {
+            if (connectTimeoutRef.current) {
+                clearTimeout(connectTimeoutRef.current)
+                connectTimeoutRef.current = null
+            }
             if (!mountedRef.current) return
             reconnectDelayRef.current = 1000 // reset back-off on successful connect
             setConnectionStatus("open")
@@ -204,10 +229,18 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
                     msg.fileId === activeFileRef.current.fileId
 
                 if (msg.type === "file.update" && isCurrentFile) {
-                    // Authoritative save notification — triggers an S3 fetch
+                    // Authoritative save notification — triggers an S3 fetch.
+                    // Skip self-broadcasts: our own saves come back via WS but
+                    // Canister already updates refs inline, so re-processing
+                    // them would trigger a spurious setBlocks and drop focus.
+                    if (msg.updatedBy && msg.updatedBy === userEmailRef.current)
+                        return
                     setRemoteUpdate(msg)
                 } else if (msg.type === "file.content" && isCurrentFile) {
-                    // Keystroke-level content broadcast — apply directly, no S3 fetch
+                    // Keystroke-level content broadcast — apply directly, no S3 fetch.
+                    // Skip self-broadcasts: own typing is already in contentRef.
+                    if (msg.fromEmail && msg.fromEmail === userEmailRef.current)
+                        return
                     setRemoteContent(msg)
                 } else if (msg.type === "typing.update" && isCurrentFile) {
                     // Lightweight typing indicator — show immediately without waiting
@@ -255,6 +288,10 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
         }
 
         ws.onclose = () => {
+            if (connectTimeoutRef.current) {
+                clearTimeout(connectTimeoutRef.current)
+                connectTimeoutRef.current = null
+            }
             if (!mountedRef.current) return
             setConnectionStatus("closed")
             if (pingTimerRef.current) clearInterval(pingTimerRef.current)
@@ -281,13 +318,19 @@ export function useCollaboration({ wikiId, fileId, accessToken, userEmail }) {
             if (reconnectTimerRef.current)
                 clearTimeout(reconnectTimerRef.current)
             if (pingTimerRef.current) clearInterval(pingTimerRef.current)
+            if (connectTimeoutRef.current) {
+                clearTimeout(connectTimeoutRef.current)
+                connectTimeoutRef.current = null
+            }
             if (wsRef.current) {
                 wsRef.current.onclose = null
                 wsRef.current.close()
                 wsRef.current = null
             }
             setConnectionStatus("closed")
-            setRemoteCursors((prev) => (Object.keys(prev).length === 0 ? prev : {}))
+            setRemoteCursors((prev) =>
+                Object.keys(prev).length === 0 ? prev : {},
+            )
             Object.values(cursorExpireTimers.current).forEach(clearTimeout)
             cursorExpireTimers.current = {}
         }

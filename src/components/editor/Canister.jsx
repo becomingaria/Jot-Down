@@ -28,6 +28,7 @@ import { useFile } from "../../hooks/useFile"
 import { useCollaboration } from "../../hooks/useCollaboration"
 import { apiClient } from "../../services/api"
 import { useAuth } from "../../contexts/AuthContext"
+import { diff3Merge } from "../../utils/diff3"
 
 /* ─── Version helpers ─── */
 const EDITS_PER_CHECKPOINT = 100
@@ -116,18 +117,16 @@ function relativeTime(isoString) {
 }
 
 export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
-  const { file, updateFile, saveContent } = useFile(wikiId, fileId)
+  const { file, updateFile, saveContent, refetch: refetchFile } = useFile(wikiId, fileId)
   const { idToken, accessToken, user } = useAuth()
   const [content, setContent] = useState("")
   const [isPreview, setIsPreview] = useState(false)
   const [hasChanges, setHasChanges] = useState(false)
-  const [saving, setSaving] = useState(false)
   const saveTimeoutRef = useRef(null)
   // Debounced save-status label — only appears after 1.5 s of inactivity
   // so it doesn’t flash on every keystroke.
   const [saveStatus, setSaveStatus] = useState(null) // null | 'unsaved' | 'saving' | 'saved'
   const [statusMessage, setStatusMessage] = useState("")
-  const [isSaving, setIsSaving] = useState(false)
   const [remoteSyncMessage, setRemoteSyncMessage] = useState("")
   const statusTimerRef = useRef(null)
   const remoteSyncTimerRef = useRef(null)
@@ -145,7 +144,8 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const [editingName, setEditingName] = useState(false)
   const [nameValue, setNameValue] = useState("")
 
-  const getDraftKey = (wikiId, fileId) => `jd:draft:${wikiId}:${fileId}`
+  // Scope draft keys per user so shared-device users don't inherit each other's drafts.
+  const getDraftKey = (wikiId, fileId) => `jd:draft:${wikiId}:${fileId}:${user?.sub ?? ""}` // eslint-disable-line react-hooks/exhaustive-deps
 
   // Version checkpoint state
   const editCountRef = useRef(0)
@@ -155,7 +155,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
   // Draft localStorage state
   const [hasDraft, setHasDraft] = useState(false)
-  const [draftContent, setDraftContent] = useState("")
+  // draftContent only used programmatically (not in JSX), so a ref avoids
+  // triggering re-renders when the draft is updated.
+  const draftContentRef = useRef("")
 
   // Version diff UI state
   const [diffDialogOpen, setDiffDialogOpen] = useState(false)
@@ -196,6 +198,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           setContent(saved)
           setExternalLiveContent(saved)
           contentRef.current = saved
+          draftContentRef.current = saved
           setHasChanges(true)
           setSaveStatus("unsaved")
           setStatusMessage("Unsaved draft restored from local storage.")
@@ -204,7 +207,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
         setExternalLiveContent(file.content)
         setHasDraft(false)
-        setDraftContent("")
+        draftContentRef.current = ""
         localStorage.removeItem(draftKey)
       } catch (err) {
         console.warn("Failed to load local draft", err)
@@ -218,6 +221,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     // Reset initial-load guard so the new file's first fetch triggers BlockEditor update
     fileLoadedRef.current = null
+    saveRetryCountRef.current = 0  // cancel any pending retry from the previous file
 
     // Cleanup old localStorage version keys from previous local checkpoint implementation.
     try {
@@ -284,8 +288,16 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   const contentRef = useRef(content)
   const savingRef = useRef(false)
   const fileContentRef = useRef(file?.content)  // tracks latest saved server content
+  const fileRevRef = useRef(file?.rev)           // tracks latest saved server rev (for optimistic concurrency)
+  const saveRetryCountRef = useRef(0)            // consecutive transient-failure count
   const updateFileRef = useRef(updateFile)       // stable ref to latest updateFile fn
   const saveContentRef = useRef(saveContent)     // stable ref to fire-and-forget save
+
+  // Flush contentRef into state so preview/export/version functions see latest
+  // typed content. Called lazily (not on every keystroke) to avoid re-renders.
+  const flushContentToState = useCallback(() => {
+    setContent(contentRef.current)
+  }, [])
 
   // ── Real-time collaboration via WebSocket ────────────────────────────────
   const { connectionStatus, remoteUpdate, clearRemoteUpdate, remoteContent, clearRemoteContent, sendContent, remoteCursors, sendCursor, sendTyping } = useCollaboration({
@@ -318,12 +330,16 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     if (typingOnly || incoming === null || incoming === contentRef.current) return
 
+    // Don't overwrite the local user's active typing.
+    // They'll converge to the correct state on the next server-authoritative fetch.
+    if (saveTimeoutRef.current) return
+
     setExternalLiveContent(incoming)
     setContent(incoming)
     contentRef.current = incoming
   }, [remoteContent]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Authoritative save notification — always apply (last-write-wins)
+  // Authoritative save notification — merge remote changes into local content
   useEffect(() => {
     if (!remoteUpdate) return
     clearRemoteUpdate()
@@ -331,15 +347,37 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     const incoming = remoteUpdate
     apiClient.getFile(wikiId, fileId).then((latest) => {
       if (!latest?.content) return
-      setExternalLiveContent(latest.content)
-      setContent(latest.content)
-      contentRef.current = latest.content
-      fileContentRef.current = latest.content
+
       lastSyncedRevRef.current = incoming.rev
-      setHasChanges(false)
-      setSaveStatus("saved")
-      setStatusMessage("Live update received")
-      setRemoteSyncMessage(`☁ Saved by ${incoming.updatedBy || "collaborator"}`)
+
+      const userHasLocalChanges = contentRef.current !== fileContentRef.current
+      const base = fileContentRef.current   // capture baseline BEFORE overwriting it
+
+      // Always update server-baseline refs so next doSave uses the correct rev
+      fileContentRef.current = latest.content
+      fileRevRef.current = latest.rev
+
+      const displayName = incoming.updatedBy?.split('@')[0] || 'collaborator'
+
+      if (userHasLocalChanges) {
+        // Merge: non-overlapping edits from both sides are preserved;
+        // for the same line changed by both, theirs wins.
+        const merged = diff3Merge(base, contentRef.current, latest.content)
+        contentRef.current = merged
+        setExternalLiveContent(merged)
+        setContent(merged)
+        setRemoteSyncMessage(`☁ ${displayName} saved — merged`)
+      } else {
+        // No local changes — apply remote directly
+        contentRef.current = latest.content
+        setExternalLiveContent(latest.content)
+        setContent(latest.content)
+        setHasChanges(false)
+        setSaveStatus('saved')
+        setStatusMessage('Live update received')
+        setRemoteSyncMessage(`☁ Saved by ${displayName}`)
+      }
+
       if (remoteSyncTimerRef.current) clearTimeout(remoteSyncTimerRef.current)
       remoteSyncTimerRef.current = setTimeout(() => setRemoteSyncMessage(""), 3500)
     }).catch((err) => console.warn("WS: failed to fetch updated content", err))
@@ -390,8 +428,14 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     if (idToken) apiClient.setIdToken(idToken)
   }, [idToken])
 
-  useEffect(() => { contentRef.current = content }, [content])
+  // contentRef is the canonical live value; content state is only a snapshot
+  // used for rendering (preview, export). Keep them in sync on external loads.
+  // On normal keystrokes contentRef is updated directly in handleContentChange.
+  useEffect(() => {
+    if (content !== contentRef.current) contentRef.current = content
+  }, [content])
   useEffect(() => { fileContentRef.current = file?.content }, [file?.content])
+  useEffect(() => { fileRevRef.current = file?.rev }, [file?.rev])
   useEffect(() => { updateFileRef.current = updateFile }, [updateFile])
   useEffect(() => { saveContentRef.current = saveContent }, [saveContent])
 
@@ -430,7 +474,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       try {
         const sel = window.getSelection()
         if (sel && sel.rangeCount > 0) return sel.getRangeAt(0).cloneRange()
-      } catch {}
+      } catch { }
       return null
     })()
 
@@ -453,20 +497,23 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
               const sel = window.getSelection()
               sel.removeAllRanges()
               sel.addRange(preSaveRange)
-            } catch {}
+            } catch { }
           }
         }
-      } catch {}
+      } catch { }
     }
 
     try {
       savingRef.current = true
-      setSaving(true)
-      setIsSaving(true)
       setSaveStatus('saving')
       setStatusMessage('Autosaving…')
 
-      await updateFile({ content: text })
+      const result = await updateFile({ content: text, rev: fileRevRef.current })
+      // Update baseline refs directly — updateFile no longer refetches for content saves,
+      // so we can't rely on the file?.rev / file?.content effects to update them.
+      if (result?.rev) fileRevRef.current = result.rev
+      fileContentRef.current = text
+      saveRetryCountRef.current = 0
       setHasChanges(false)
 
       // clear local draft after successful save
@@ -478,7 +525,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       }
 
       setHasDraft(false)
-      setDraftContent("")
+      draftContentRef.current = ""
       setSaveStatus('saved')
       setStatusMessage('Saved ✓')
       statusTimerRef.current = setTimeout(() => {
@@ -487,21 +534,76 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       }, 1200)
       return true
     } catch (err) {
+      // 409 Conflict — another user saved while we were editing.
+      // Automatically merge their remote changes into our local edits using
+      // line-based diff3: non-overlapping edits from both sides are preserved;
+      // for the same line changed by both, theirs wins (last-write).
+      if (err.message?.includes('Conflict') || err.message?.includes('409')) {
+        try {
+          const latest = await apiClient.getFile(wikiId, fileId)
+          if (latest?.content) {
+            const base = fileContentRef.current          // common ancestor
+            const merged = diff3Merge(base, text, latest.content)
+            // Update baselines to the resolved server state
+            fileContentRef.current = latest.content
+            fileRevRef.current = latest.rev
+            // Apply merged content to the editor
+            contentRef.current = merged
+            setContent(merged)
+            setExternalLiveContent(merged)
+            // Inline retry: save the merged result with the fresh rev
+            const mergeResult = await apiClient.updateFile(wikiId, fileId, { content: merged, rev: latest.rev })
+            fileRevRef.current = mergeResult.rev
+            fileContentRef.current = merged
+            saveRetryCountRef.current = 0
+            setHasChanges(false)
+            try { localStorage.removeItem(getDraftKey(wikiId, fileId)) } catch { }
+            setHasDraft(false)
+            draftContentRef.current = ""
+            setSaveStatus('saved')
+            setStatusMessage('Saved ✓')
+            statusTimerRef.current = setTimeout(() => { setSaveStatus(null); setStatusMessage("") }, 1200)
+            return true
+          }
+        } catch (mergeErr) {
+          // Merge-retry also failed (e.g. double-concurrent write) — surface conflict
+          console.warn("Auto-merge failed:", mergeErr.message)
+        }
+        setSaveStatus('conflict')
+        setStatusMessage('Conflict — reload to see latest')
+        return false
+      }
+      // Transient network/server failure — retry with exponential back-off (max 3 attempts)
       console.error("Auto-save failed:", err)
-      setSaveStatus('unsaved')
-      setStatusMessage('Auto-save failed')
+      const attempt = saveRetryCountRef.current + 1
+      saveRetryCountRef.current = attempt
+      const capturedFileId = fileId
+      if (attempt <= 3) {
+        const retryDelay = attempt * 5000
+        setSaveStatus('unsaved')
+        setStatusMessage(`Save failed — retrying in ${attempt * 5}s…`)
+        setTimeout(() => {
+          if (fileId === capturedFileId && !savingRef.current)
+            doSave(contentRef.current)
+        }, retryDelay)
+      } else {
+        saveRetryCountRef.current = 0
+        setSaveStatus('unsaved')
+        setStatusMessage('Auto-save failed — draft saved locally')
+      }
       return false
     } finally {
       savingRef.current = false
-      setSaving(false)
-      setIsSaving(false)
       // Restore focus after React flushes the state updates above
       requestAnimationFrame(restoreFocus)
     }
   }, [updateFile, wikiId, fileId])
 
   const handleContentChange = useCallback((newContent) => {
-    setContent(newContent)
+    // Write to ref only — do NOT call setContent here. Updating content state
+    // on every keystroke would re-render Canister and cascade through the whole
+    // component tree, eventually disturbing the user's cursor position.
+    // content state is flushed lazily: on preview open, export, or file switch.
     contentRef.current = newContent
     setHasChanges(true)
 
@@ -520,7 +622,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       const draftKey = getDraftKey(wikiId, fileId)
       localStorage.setItem(draftKey, newContent)
       setHasDraft(true)
-      setDraftContent(newContent)
+      draftContentRef.current = newContent
     } catch (err) {
       console.warn("Failed to save draft", err)
     }
@@ -540,6 +642,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     }
 
     saveTimeoutRef.current = setTimeout(() => {
+      saveTimeoutRef.current = null  // clear before doSave so guards (remoteContent, liveSyncTick) see it as idle
       doSave(contentRef.current)
     }, 800)
   }, [doSave, wikiId, fileId])
@@ -592,6 +695,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     // Reset before new file content arrives
     setContent("")
     contentRef.current = ""
+    draftContentRef.current = ""
     setHasChanges(false)
     setSaveStatus(null)
     setStatusMessage("")
@@ -602,6 +706,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       if (saved) {
         setContent(saved)
         contentRef.current = saved
+        draftContentRef.current = saved
         setHasChanges(true)
         setSaveStatus('saving')
         setStatusMessage('Recovered unsaved draft')
@@ -646,7 +751,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   /* ─── Version restore ─── */
   const handleRestoreDraft = useCallback(() => {
     if (!wikiId || !fileId) return
-    let draftToRestore = draftContent
+    let draftToRestore = draftContentRef.current
 
     try {
       const draftKey = getDraftKey(wikiId, fileId)
@@ -663,7 +768,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     setEditorKey((k) => k + 1)
     setHasChanges(true)
     setHasDraft(false)
-    setDraftContent("")
+    draftContentRef.current = ""
 
     try {
       const draftKey = getDraftKey(wikiId, fileId)
@@ -674,7 +779,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
     doSave(draftToRestore)
-  }, [draftContent, doSave, wikiId, fileId])
+  }, [doSave, wikiId, fileId])
 
   const handleRestoreVersion = async (version) => {
     setVersionsOpen(false)
@@ -740,7 +845,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
   const handleExportMd = () => {
     setExportAnchor(null)
-    const blob = new Blob([content], { type: "text/markdown" })
+    const blob = new Blob([contentRef.current], { type: "text/markdown" })
     downloadBlob(blob, file?.name || "document.md")
   }
 
@@ -749,7 +854,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     try {
       const { Document, Paragraph, TextRun, HeadingLevel, Packer, AlignmentType, BorderStyle } = await import("docx")
 
-      const lines = content.split("\n")
+      const lines = contentRef.current.split("\n")
       const children = []
 
       for (const line of lines) {
@@ -925,14 +1030,18 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 160, gap: 1, flexShrink: 0 }}>
           <Typography
             variant="body2"
+            title={saveStatus === 'conflict' ? 'Click to reload the latest server version — your draft is saved locally' : undefined}
+            onClick={saveStatus === 'conflict' ? () => refetchFile() : undefined}
             sx={{
               width: 90,
               textAlign: 'center',
-              opacity: isSaving || saveStatus ? 1 : 0.7,
+              opacity: !!saveStatus ? 1 : 0.7,
               transition: 'opacity 150ms ease',
               whiteSpace: 'nowrap',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
+              color: saveStatus === 'conflict' ? 'error.main' : 'inherit',
+              cursor: saveStatus === 'conflict' ? 'pointer' : 'default',
             }}
           >
             {remoteSyncMessage
@@ -941,9 +1050,11 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
                 ? 'Autosaving…'
                 : saveStatus === 'saved'
                   ? 'Saved'
-                  : saveStatus === 'unsaved'
-                    ? 'Unsaved'
-                    : ''}
+                  : saveStatus === 'conflict'
+                    ? 'Conflict ⚠️'
+                    : saveStatus === 'unsaved'
+                      ? 'Unsaved'
+                      : ''}
           </Typography>
           {import.meta.env.VITE_WS_URL && (
             <Tooltip title={connectionStatus === 'open' ? 'Live collaboration active' : 'Reconnecting\u2026'}>
@@ -1085,7 +1196,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
         <IconButton
           onClick={handleManualSave}
-          disabled={saving}
+          disabled={saveStatus === 'saving'}
           color="primary"
           title="Save (create restore point)"
         >
@@ -1110,7 +1221,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
         </Menu>
         <Divider orientation="vertical" flexItem />
         <IconButton
-          onClick={() => setIsPreview(!isPreview)}
+          onClick={() => { if (!isPreview) flushContentToState(); setIsPreview(v => !v) }}
           color={isPreview ? "primary" : "default"}
           title={isPreview ? "Edit" : "Preview"}
         >

@@ -605,17 +605,39 @@ export async function handler(event) {
             updateExprParts.push("rev = :rev")
             exprValues[":rev"] = newRev
 
-            await ddb.send(
-                new UpdateCommand({
-                    TableName: TABLE_NAME,
-                    Key: { PK: `WIKI#${wikiId}`, SK: `FILE#${fileId}` },
-                    UpdateExpression: `SET ${updateExprParts.join(", ")}`,
-                    ExpressionAttributeValues: exprValues,
-                    ...(Object.keys(exprNames).length > 0
-                        ? { ExpressionAttributeNames: exprNames }
-                        : {}),
-                }),
-            )
+            // Optimistic concurrency control: if the client sends the last-known
+            // rev, reject the write if another user has already incremented it.
+            // "attribute_not_exists(rev)" covers legacy items that have no rev yet.
+            let conditionExpr
+            if (body.rev) {
+                conditionExpr =
+                    "attribute_not_exists(rev) OR rev = :expectedRev"
+                exprValues[":expectedRev"] = body.rev
+            }
+
+            try {
+                await ddb.send(
+                    new UpdateCommand({
+                        TableName: TABLE_NAME,
+                        Key: { PK: `WIKI#${wikiId}`, SK: `FILE#${fileId}` },
+                        UpdateExpression: `SET ${updateExprParts.join(", ")}`,
+                        ExpressionAttributeValues: exprValues,
+                        ...(Object.keys(exprNames).length > 0
+                            ? { ExpressionAttributeNames: exprNames }
+                            : {}),
+                        ...(conditionExpr
+                            ? { ConditionExpression: conditionExpr }
+                            : {}),
+                    }),
+                )
+            } catch (err) {
+                if (err.name === "ConditionalCheckFailedException") {
+                    return response(409, {
+                        error: "Conflict: this file was modified by another user. Reload to see the latest version.",
+                    })
+                }
+                throw err
+            }
 
             // Broadcast update to all WebSocket subscribers (fire-and-forget)
             broadcastFileUpdate(wikiId, fileId, {
@@ -627,7 +649,7 @@ export async function handler(event) {
                 updatedBy: user.email,
             }).catch((err) => console.warn("WS broadcast failed", err.message))
 
-            return response(200, { updated: true, rev: newRev })
+            return response(200, { updated: true, rev: newRev, updatedAt: now })
         }
 
         // --- VERSION HISTORY ---

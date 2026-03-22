@@ -159,8 +159,31 @@ export function useFile(wikiId, fileId) {
     const updateFile = useCallback(
         async (data) => {
             try {
-                await apiClient.updateFile(wikiId, fileId, data)
-                await fetchFile()
+                const result = await apiClient.updateFile(wikiId, fileId, data)
+                const isContentOnlySave =
+                    data.content !== undefined &&
+                    !data.name &&
+                    data.folderId === undefined
+                if (isContentOnlySave) {
+                    // Don't refetch — update rev/updatedAt in place so Canister
+                    // doesn't re-render with a new file object and drop focus.
+                    if (result?.rev !== undefined) {
+                        setFile((prev) =>
+                            prev && latestFileIdRef.current === fileId
+                                ? {
+                                      ...prev,
+                                      rev: result.rev,
+                                      ...(result.updatedAt
+                                          ? { updatedAt: result.updatedAt }
+                                          : {}),
+                                  }
+                                : prev,
+                        )
+                    }
+                } else {
+                    await fetchFile()
+                }
+                return result
             } catch (err) {
                 setError(err.message)
                 throw err
