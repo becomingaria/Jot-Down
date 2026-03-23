@@ -139,7 +139,19 @@ function BlockEditorInner({ initialContent = "", onChange, wikiId, onFileSelect,
     // from rebuilding blocks and dropping the user's cursor.
     if (externalContent === lastAppliedExternalRef.current) return
     lastAppliedExternalRef.current = externalContent
-    setBlocks(markdownToBlocks(externalContent))
+    setBlocks((prevBlocks) => {
+      const newBlocks = markdownToBlocks(externalContent)
+      // Re-use the existing block IDs at each position instead of the fresh UUIDs
+      // that markdownToBlocks generates.  This keeps every Block's `key` prop stable
+      // so React updates in-place rather than unmounting/remounting, which means:
+      //   • activeBlockId stays valid  →  the focused block keeps isActive=true
+      //   • the contentEditable DOM element is never replaced  →  focus never drops
+      //   • no spurious scroll-to-bottom from the browser reacting to focus loss
+      // Blocks added beyond the previous length get their fresh IDs (fine — they're new).
+      return newBlocks.map((nb, i) =>
+        prevBlocks[i] ? { ...nb, id: prevBlocks[i].id } : nb
+      )
+    })
   }, [externalContent])
 
   /* ─── Undo / Redo handlers ─── */

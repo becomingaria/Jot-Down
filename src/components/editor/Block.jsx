@@ -257,12 +257,10 @@ export function Block({
     return cleanup
   }, [remoteCursors, block.id, block.content])
 
-  /* ---- Sync DOM text from React state (only when we gain focus or content
-          is changed externally, e.g. after merge/split/slash-select) ---- */
+  /* ---- Sync DOM text from React state (only when content changes externally,
+          e.g. after merge/split/slash-select) ---- */
   useEffect(() => {
     if (!ref.current) return
-    // Never clobber an element the user is actively typing in — that resets the cursor.
-    if (document.activeElement === ref.current) return
     if (block.type === BLOCK_TYPES.CODE) {
       // Code blocks stay as plain text — no inline HTML
       if (ref.current.textContent !== block.content) {
@@ -271,6 +269,11 @@ export function Block({
     } else {
       const expectedHtml = markdownInlineToHtml(block.content)
       if (ref.current.innerHTML !== expectedHtml) {
+        // Only update the DOM if the content genuinely differs.
+        // During normal typing markdownInlineToHtml(block.content) === ref.current.innerHTML
+        // (they are inverses of each other), so this is a no-op on every keystroke.
+        // After a slash command the content is cleared (e.g. "/" → "") while the DOM
+        // still shows "/" — the mismatch triggers the update and clears it correctly.
         ref.current.innerHTML = expectedHtml
       }
     }

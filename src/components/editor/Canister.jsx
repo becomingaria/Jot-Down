@@ -159,6 +159,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   // triggering re-renders when the draft is updated.
   const draftContentRef = useRef("")
 
+  // Restore point success modal
+  const [restorePointModalOpen, setRestorePointModalOpen] = useState(false)
+
   // Version diff UI state
   const [diffDialogOpen, setDiffDialogOpen] = useState(false)
   const [diffVersion, setDiffVersion] = useState(null)
@@ -194,7 +197,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
         const saved = localStorage.getItem(draftKey)
         if (saved && saved !== file.content) {
           setHasDraft(true)
-          setDraftContent(saved)
+          // NOTE: draftContent was converted to a ref (draftContentRef) — there
+          // is no setDraftContent setter.  Remove the stale call; draftContentRef
+          // is updated two lines below.
           setContent(saved)
           setExternalLiveContent(saved)
           contentRef.current = saved
@@ -656,6 +661,7 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
     // Always create a restore point on explicit save (even if content was already in sync)
     try {
       await createServerVersion(contentRef.current, "Manual save")
+      setRestorePointModalOpen(true)
     } catch (err) {
       console.error("Failed to create manual restore point", err)
     }
@@ -682,7 +688,12 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
       if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current)
       const latest = contentRef.current
       const saved = fileContentRef.current
-      if (latest !== undefined && latest !== saved && !savingRef.current) {
+      // Only flush if the file has actually loaded (saved !== undefined) AND there
+      // are genuine unsaved changes.  Without the `saved !== undefined` guard, if
+      // the component unmounts before the file data arrives, contentRef is still ""
+      // (from the file-switch reset) and fileContentRef is undefined — the old guard
+      // `latest !== undefined` would be true for "" and we'd PUT empty content to S3.
+      if (saved !== undefined && latest !== undefined && latest !== saved && !savingRef.current) {
         saveContentRef.current?.(latest).catch(() => { })
       }
     }
@@ -721,7 +732,11 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
   // Warn before hard-refresh / tab close if there are unsaved changes
   useEffect(() => {
     const handleBeforeUnload = (e) => {
-      if (contentRef.current !== file?.content) {
+      // Compare against fileContentRef (last successfully saved content) rather
+      // than file?.content (which is the initial-load snapshot and never updates
+      // after autosaves).  Using file?.content caused spurious "Leave site?"
+      // dialogs even when content was already saved to the server.
+      if (fileContentRef.current !== undefined && contentRef.current !== fileContentRef.current) {
         e.preventDefault()
         e.returnValue = '' // triggers the browser's built-in "Leave site?" dialog
       }
@@ -765,6 +780,9 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     setContent(draftToRestore)
     contentRef.current = draftToRestore
+    // Also update externalLiveContent so the externalContent effect in BlockEditor
+    // sees a matching value after remount and doesn't overwrite the draft.
+    setExternalLiveContent(draftToRestore)
     setEditorKey((k) => k + 1)
     setHasChanges(true)
     setHasDraft(false)
@@ -799,6 +817,11 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
 
     setContent(contentToRestore)
     contentRef.current = contentToRestore
+    // Also update externalLiveContent so that when BlockEditor remounts (new editorKey),
+    // the externalContent prop matches initialContent.  Without this, the identity guard
+    // in BlockEditor's externalContent effect sees a mismatch and immediately overwrites
+    // the restored content with the stale previous value.
+    setExternalLiveContent(contentToRestore)
     setEditorKey((k) => k + 1) // force BlockEditor to re-mount with restored content
     setHasChanges(true)
     // Trigger a save immediately so it persists
@@ -1194,14 +1217,39 @@ export function Canister({ wikiId, fileId, onFileSelect, onRename }) {
           </DialogActions>
         </Dialog>
 
-        <IconButton
-          onClick={handleManualSave}
-          disabled={saveStatus === 'saving'}
-          color="primary"
-          title="Save (create restore point)"
+        <Tooltip title="Save (create restore point)">
+          <IconButton
+            onClick={handleManualSave}
+            disabled={saveStatus === 'saving'}
+            color="primary"
+          >
+            <Save />
+          </IconButton>
+        </Tooltip>
+
+        {/* Restore point success modal */}
+        <Dialog
+          open={restorePointModalOpen}
+          onClose={() => setRestorePointModalOpen(false)}
+          maxWidth="xs"
+          fullWidth
         >
-          <Save />
-        </IconButton>
+          <DialogTitle sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+            <CheckCircle color="success" />
+            Restore Point Saved
+          </DialogTitle>
+          <DialogContent>
+            <Typography>
+              A new restore point was successfully created. You can find it in
+              the version history panel and restore it at any time.
+            </Typography>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setRestorePointModalOpen(false)} variant="contained" autoFocus>
+              Got it
+            </Button>
+          </DialogActions>
+        </Dialog>
         <Tooltip title="Export / Download">
           <IconButton onClick={(e) => setExportAnchor(e.currentTarget)}>
             <Download />
